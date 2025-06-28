@@ -4,10 +4,10 @@
   "description": " A basic starter for an express.js API with Typescript",
   "main": "src/index.ts",
   "scripts": {
-    "start": "ts-node src/index.ts",
+    "start": "node dist/src/index.js",
     "dev": "nodemon src/index.ts",
     "build": "tsc",
-    "start:dist": "node dist/src/index.js",
+    "start:dev": "ts-node src/index.ts",
     "lint": "eslint --fix src test",
     "test": "jest",
     "typecheck": "tsc --noEmit"

@@ -56,9 +56,51 @@ export const rate = pgTable('rates', {
   updatedAt: timestamp('updated_at', { withTimezone: false }).defaultNow(),
 });
 
+export const follow = pgTable('follows', {
+  id: serial('id').primaryKey(),
+  followerId: text('follower_id').notNull(),
+  followingId: text('following_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const recipeLike = pgTable('recipe_likes', {
+  id: serial('id').primaryKey(),
+  recipeId: integer('recipe_id').notNull(),
+  userId: text('user_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const recipeComment = pgTable('recipe_comments', {
+  id: serial('id').primaryKey(),
+  recipeId: integer('recipe_id').notNull(),
+  userId: text('user_id').notNull(),
+  content: text('content').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+export const notification = pgTable('notifications', {
+  id: serial('id').primaryKey(),
+  recipientId: text('recipient_id').notNull(),
+  senderId: text('sender_id'),
+  type: text('type').notNull(),
+  title: text('title').notNull(),
+  message: text('message').notNull(),
+  relatedId: integer('related_id'),
+  relatedType: text('related_type'),
+  read: text('read').default('false'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   recipes: many(recipe),
   rates: many(rate),
+  followers: many(follow, { relationName: 'following' }),
+  following: many(follow, { relationName: 'follower' }),
+  recipeLikes: many(recipeLike),
+  recipeComments: many(recipeComment),
+  sentNotifications: many(notification, { relationName: 'sender' }),
+  receivedNotifications: many(notification, { relationName: 'recipient' }),
 }));
 
 export const recipeRelations = relations(recipe, ({ one, many }) => ({
@@ -69,6 +111,8 @@ export const recipeRelations = relations(recipe, ({ one, many }) => ({
   ingredients: many(ingredient),
   instructions: many(instruction),
   rates: many(rate),
+  likes: many(recipeLike),
+  comments: many(recipeComment),
 }));
 
 export const ingredientsRelations = relations(ingredient, ({ one }) => ({
@@ -93,5 +137,53 @@ export const ratesRelations = relations(rate, ({ one }) => ({
   user: one(users, {
     fields: [rate.userId],
     references: [users.externalId],
+  }),
+}));
+
+export const followsRelations = relations(follow, ({ one }) => ({
+  follower: one(users, {
+    fields: [follow.followerId],
+    references: [users.externalId],
+    relationName: 'follower',
+  }),
+  following: one(users, {
+    fields: [follow.followingId],
+    references: [users.externalId],
+    relationName: 'following',
+  }),
+}));
+
+export const recipeLikesRelations = relations(recipeLike, ({ one }) => ({
+  recipe: one(recipe, {
+    fields: [recipeLike.recipeId],
+    references: [recipe.id],
+  }),
+  user: one(users, {
+    fields: [recipeLike.userId],
+    references: [users.externalId],
+  }),
+}));
+
+export const recipeCommentsRelations = relations(recipeComment, ({ one }) => ({
+  recipe: one(recipe, {
+    fields: [recipeComment.recipeId],
+    references: [recipe.id],
+  }),
+  user: one(users, {
+    fields: [recipeComment.userId],
+    references: [users.externalId],
+  }),
+}));
+
+export const notificationsRelations = relations(notification, ({ one }) => ({
+  recipient: one(users, {
+    fields: [notification.recipientId],
+    references: [users.externalId],
+    relationName: 'recipient',
+  }),
+  sender: one(users, {
+    fields: [notification.senderId],
+    references: [users.externalId],
+    relationName: 'sender',
   }),
 }));

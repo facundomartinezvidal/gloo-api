@@ -161,3 +161,162 @@ export const createRecipe = async (req: Request, res: Response) => {
     });
   }
 };
+
+export const updateRecipe = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { title, description, estimatedTime, media } = createRecipeInput.parse(req.body);
+    
+    const recipeId = parseInt(id);
+    if (isNaN(recipeId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID de receta inválido',
+      });
+    }
+
+    // Verificar si la receta existe
+    const existingRecipe = await db.select().from(recipe).where(eq(recipe.id, recipeId));
+    if (existingRecipe.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Receta no encontrada',
+      });
+    }
+
+    let mediaUrl: string | null = null;
+    let mediaType: 'image' | 'video' | null = null;
+
+    // Procesar media si se proporciona
+    if (media) {
+      mediaUrl = media; // Por defecto usar la URL proporcionada
+
+      // Si el archivo viene como base64, subirlo a Supabase Storage
+      if (media.startsWith('data:')) {
+        // Extraer tipo de archivo y datos base64
+        const [header, base64Data] = media.split(',');
+        const mimeMatch = header.match(/data:([^;]+)/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+        
+        // Validar que sea imagen o video
+        if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) {
+          return res.status(400).json({
+            success: false,
+            error: 'Solo se permiten archivos de imagen o video',
+          });
+        }
+        
+        // Determinar tipo de media
+        mediaType = mimeType.startsWith('image/') ? 'image' : 'video';
+        
+        // Convertir base64 a buffer
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        // Generar nombre único de archivo
+        const extension = mimeType.split('/')[1];
+        const fileName = `recipes/${existingRecipe[0].userId}/${Date.now()}.${extension}`;
+        
+        // Subir archivo a Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('recipe.content')
+          .upload(fileName, buffer, {
+            contentType: mimeType,
+          });
+
+        if (uploadError) {
+          return res.status(400).json({
+            success: false,
+            error: 'Error al subir archivo: ' + uploadError.message,
+          });
+        }
+
+        // Obtener URL pública del archivo
+        const { data: urlData } = supabase.storage
+          .from('recipe.content')
+          .getPublicUrl(fileName);
+
+        mediaUrl = urlData.publicUrl;
+      } else {
+        // Si es una URL, intentar determinar el tipo por extensión
+        const urlLower = media.toLowerCase();
+        if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
+          mediaType = 'video';
+        } else {
+          mediaType = 'image'; // Por defecto asumir imagen
+        }
+      }
+    }
+
+    // Actualizar la receta
+    const updatedRecipe = await db
+      .update(recipe)
+      .set({
+        title,
+        description,
+        estimatedTime,
+        image: mediaUrl,
+        mediaType: mediaType,
+        updatedAt: new Date(),
+      })
+      .where(eq(recipe.id, recipeId))
+      .returning();
+
+    res.json({
+      success: true,
+      data: updatedRecipe[0],
+      message: 'Receta actualizada exitosamente',
+    });
+  } catch (error) {
+    console.error('Error updating recipe:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+    });
+  }
+};
+
+export const deleteRecipe = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    const recipeId = parseInt(id);
+    if (isNaN(recipeId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID de receta inválido',
+      });
+    }
+
+    // Verificar si la receta existe
+    const existingRecipe = await db.select().from(recipe).where(eq(recipe.id, recipeId));
+    if (existingRecipe.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Receta no encontrada',
+      });
+    }
+
+    // Eliminar ingredientes asociados
+    await db.delete(ingredient).where(eq(ingredient.recipeId, recipeId));
+    
+    // Eliminar instrucciones asociadas
+    await db.delete(instruction).where(eq(instruction.recipeId, recipeId));
+    
+    // Eliminar calificaciones asociadas
+    await db.delete(rate).where(eq(rate.recipeId, recipeId));
+    
+    // Eliminar la receta
+    await db.delete(recipe).where(eq(recipe.id, recipeId));
+
+    res.json({
+      success: true,
+      message: 'Receta eliminada exitosamente',
+    });
+  } catch (error) {
+    console.error('Error deleting recipe:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+    });
+  }
+};

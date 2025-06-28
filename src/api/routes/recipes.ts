@@ -3,7 +3,7 @@ import { getAllRecipes, createRecipe } from '../handlers/recipes';
 const router = express.Router();
 
 router.get('/', getAllRecipes);
-router.post('/', createRecipe);
+router.post('/:userId', createRecipe);
 
 
 export default router;

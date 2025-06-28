@@ -18,6 +18,8 @@ export const recipe = pgTable('recipe', {
   description: text('description'),
   estimatedTime: integer('estimated_time'),
   servings: integer('servings'),
+  image: text('image'),
+  mediaType: text('media_type'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   createdBy: text('created_by'),
@@ -40,6 +42,7 @@ export const instruction = pgTable('instructions', {
   recipeId: integer('recipe_id'),
   step: integer('step'),
   description: text('description'),
+  image: text('image'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 });

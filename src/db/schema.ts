@@ -17,14 +17,14 @@ export const recipe = pgTable('recipe', {
   title: text('title'),
   description: text('description'),
   estimatedTime: integer('estimated_time'),
-  image: text('image'),
+  servings: integer('servings'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   createdBy: text('created_by'),
   updatedBy: text('updated_by'),
 });
 
-export const ingredients = pgTable('ingredients', {
+export const ingredient = pgTable('ingredients', {
   id: serial('id').primaryKey(),
   recipeId: integer('recipe_id'),
   name: text('name'),
@@ -35,7 +35,7 @@ export const ingredients = pgTable('ingredients', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 });
 
-export const instructions = pgTable('instructions', {
+export const instruction = pgTable('instructions', {
   id: serial('id').primaryKey(),
   recipeId: integer('recipe_id'),
   step: integer('step'),
@@ -44,7 +44,7 @@ export const instructions = pgTable('instructions', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 });
 
-export const rates = pgTable('rates', {
+export const rate = pgTable('rates', {
   id: serial('id').primaryKey(),
   recipeId: integer('recipe_id'),
   userId: text('user_id'),
@@ -55,7 +55,7 @@ export const rates = pgTable('rates', {
 
 export const usersRelations = relations(users, ({ many }) => ({
   recipes: many(recipe),
-  rates: many(rates),
+  rates: many(rate),
 }));
 
 export const recipeRelations = relations(recipe, ({ one, many }) => ({
@@ -63,32 +63,32 @@ export const recipeRelations = relations(recipe, ({ one, many }) => ({
     fields: [recipe.userId],
     references: [users.externalId],
   }),
-  ingredients: many(ingredients),
-  instructions: many(instructions),
-  rates: many(rates),
+  ingredients: many(ingredient),
+  instructions: many(instruction),
+  rates: many(rate),
 }));
 
-export const ingredientsRelations = relations(ingredients, ({ one }) => ({
+export const ingredientsRelations = relations(ingredient, ({ one }) => ({
   recipe: one(recipe, {
-    fields: [ingredients.recipeId],
+    fields: [ingredient.recipeId],
     references: [recipe.id],
   }),
 }));
 
-export const instructionsRelations = relations(instructions, ({ one }) => ({
+export const instructionsRelations = relations(instruction, ({ one }) => ({
   recipe: one(recipe, {
-    fields: [instructions.recipeId],
+    fields: [instruction.recipeId],
     references: [recipe.id],
   }),
 }));
 
-export const ratesRelations = relations(rates, ({ one }) => ({
+export const ratesRelations = relations(rate, ({ one }) => ({
   recipe: one(recipe, {
-    fields: [rates.recipeId],
+    fields: [rate.recipeId],
     references: [recipe.id],
   }),
   user: one(users, {
-    fields: [rates.userId],
+    fields: [rate.userId],
     references: [users.externalId],
   }),
 }));

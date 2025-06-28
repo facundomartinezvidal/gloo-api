@@ -12,8 +12,8 @@ if (!process.env.DATABASE_URL) {
 export const client = postgres(process.env.DATABASE_URL, {
   ssl: process.env.NODE_ENV === 'production' ? 'require' : false,
   connection: {
-    options: '--search_path=public'
-  }
+    options: '--search_path=public',
+  },
 });
 
 export const db = drizzle(client);

@@ -21,10 +21,13 @@
   "license": "MIT",
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.6.1",
+    "drizzle-orm": "^0.44.2",
+    "drizzle-kit": "^0.31.4",
     "express": "^4.21.1",
     "helmet": "^8.0.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "postgres": "^3.4.7"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -44,6 +47,7 @@
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
+    "tsx": "^4.20.3",
     "typescript": "^5.6.3"
   }
 }

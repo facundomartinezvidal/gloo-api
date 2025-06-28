@@ -5,7 +5,8 @@ import cors from 'cors';
 
 import * as middlewares from './middlewares';
 import api from './api';
-import MessageResponse from './interfaces/MessageResponse';
+import { recipe } from './db/schema';
+import { db } from './db';
 
 require('dotenv').config();
 
@@ -16,9 +17,11 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
-app.get<{}, MessageResponse>('/', (req, res) => {
+app.get('/', async (req, res) => {
+  const recipes = await db.select().from(recipe);
   res.json({
     message: '🦄🌈✨👋🌎🌍🌏✨🌈🦄',
+    recipes,
   });
 });
 

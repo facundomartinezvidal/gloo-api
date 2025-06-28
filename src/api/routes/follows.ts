@@ -5,7 +5,7 @@ import {
   getFollowers, 
   getFollowing, 
   getFollowStatus, 
-  getUserStats 
+  getUserStats,
 } from '../handlers/follows';
 
 const router = express.Router();

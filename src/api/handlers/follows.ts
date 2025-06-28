@@ -131,31 +131,39 @@ export const getFollowers = async (req: Request, res: Response) => {
   try {
     const userId = req.params.userId;
 
-    // Obtener todos los seguidores
+    // Obtener todos los seguidores con información adicional de la tabla users
     const followers = await db.select({
       id: follow.id,
       followerId: follow.followerId,
       createdAt: follow.createdAt,
+      userDescription: users.description,
+      userIdSocialMedia: users.idSocialMedia,
+      userCreatedAt: users.createdAt,
     })
       .from(follow)
+      .leftJoin(users, eq(follow.followerId, users.externalId))
       .where(eq(follow.followingId, userId));
 
-    // Obtener información de cada seguidor desde Clerk
+    // Obtener información de cada seguidor desde Clerk y combinar con datos de la tabla users
     const followersWithInfo = await Promise.all(
       followers.map(async (follower) => {
         try {
-          const user = await clerkClient.users.getUser(follower.followerId);
+          const clerkUser = await clerkClient.users.getUser(follower.followerId);
           return {
             id: follower.id,
             followerId: follower.followerId,
             createdAt: follower.createdAt,
             user: {
-              id: user.id,
-              username: user.username,
-              email: user.emailAddresses[0]?.emailAddress,
-              imageUrl: user.imageUrl,
-              firstName: user.firstName,
-              lastName: user.lastName,
+              id: clerkUser.id,
+              username: clerkUser.username,
+              email: clerkUser.emailAddresses[0]?.emailAddress,
+              imageUrl: clerkUser.imageUrl,
+              firstName: clerkUser.firstName,
+              lastName: clerkUser.lastName,
+              // Datos adicionales de la tabla users
+              description: follower.userDescription,
+              idSocialMedia: follower.userIdSocialMedia,
+              profileCreatedAt: follower.userCreatedAt,
             },
           };
         } catch (error) {
@@ -195,31 +203,39 @@ export const getFollowing = async (req: Request, res: Response) => {
   try {
     const userId = req.params.userId;
 
-    // Obtener todos los usuarios que sigue
+    // Obtener todos los usuarios que sigue con información adicional de la tabla users
     const following = await db.select({
       id: follow.id,
       followingId: follow.followingId,
       createdAt: follow.createdAt,
+      userDescription: users.description,
+      userIdSocialMedia: users.idSocialMedia,
+      userCreatedAt: users.createdAt,
     })
       .from(follow)
+      .leftJoin(users, eq(follow.followingId, users.externalId))
       .where(eq(follow.followerId, userId));
 
-    // Obtener información de cada usuario seguido desde Clerk
+    // Obtener información de cada usuario seguido desde Clerk y combinar con datos de la tabla users
     const followingWithInfo = await Promise.all(
       following.map(async (followingUser) => {
         try {
-          const user = await clerkClient.users.getUser(followingUser.followingId);
+          const clerkUser = await clerkClient.users.getUser(followingUser.followingId);
           return {
             id: followingUser.id,
             followingId: followingUser.followingId,
             createdAt: followingUser.createdAt,
             user: {
-              id: user.id,
-              username: user.username,
-              email: user.emailAddresses[0]?.emailAddress,
-              imageUrl: user.imageUrl,
-              firstName: user.firstName,
-              lastName: user.lastName,
+              id: clerkUser.id,
+              username: clerkUser.username,
+              email: clerkUser.emailAddresses[0]?.emailAddress,
+              imageUrl: clerkUser.imageUrl,
+              firstName: clerkUser.firstName,
+              lastName: clerkUser.lastName,
+              // Datos adicionales de la tabla users
+              description: followingUser.userDescription,
+              idSocialMedia: followingUser.userIdSocialMedia,
+              profileCreatedAt: followingUser.userCreatedAt,
             },
           };
         } catch (error) {

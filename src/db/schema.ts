@@ -92,6 +92,62 @@ export const notification = pgTable('notifications', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
+// Nuevas tablas para funcionalidad de búsqueda
+export const categories = pgTable('categories', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  displayName: text('display_name').notNull(),
+  icon: text('icon'),
+  color: text('color'),
+  isActive: text('is_active').default('true'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+export const recipeCategories = pgTable('recipe_categories', {
+  id: serial('id').primaryKey(),
+  recipeId: integer('recipe_id').notNull(),
+  categoryId: integer('category_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const searchHistory = pgTable('search_history', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  query: text('query').notNull(),
+  resultsCount: integer('results_count').default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const searchSuggestions = pgTable('search_suggestions', {
+  id: serial('id').primaryKey(),
+  query: text('query').notNull(),
+  popularity: integer('popularity').default(1),
+  isActive: text('is_active').default('true'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+// Nuevas tablas para funcionalidad de colecciones
+export const collections = pgTable('collections', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  icon: text('icon'),
+  color: text('color'),
+  isPublic: text('is_public').default('false'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+export const collectionRecipes = pgTable('collection_recipes', {
+  id: serial('id').primaryKey(),
+  collectionId: integer('collection_id').notNull(),
+  recipeId: integer('recipe_id').notNull(),
+  addedAt: timestamp('added_at', { withTimezone: true }).defaultNow(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   recipes: many(recipe),
   rates: many(rate),
@@ -101,6 +157,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   recipeComments: many(recipeComment),
   sentNotifications: many(notification, { relationName: 'sender' }),
   receivedNotifications: many(notification, { relationName: 'recipient' }),
+  searchHistory: many(searchHistory),
+  collections: many(collections),
 }));
 
 export const recipeRelations = relations(recipe, ({ one, many }) => ({
@@ -113,6 +171,8 @@ export const recipeRelations = relations(recipe, ({ one, many }) => ({
   rates: many(rate),
   likes: many(recipeLike),
   comments: many(recipeComment),
+  categories: many(recipeCategories),
+  collectionRecipes: many(collectionRecipes),
 }));
 
 export const ingredientsRelations = relations(ingredient, ({ one }) => ({
@@ -185,5 +245,48 @@ export const notificationsRelations = relations(notification, ({ one }) => ({
     fields: [notification.senderId],
     references: [users.externalId],
     relationName: 'sender',
+  }),
+}));
+
+// Relaciones para las nuevas tablas de búsqueda
+export const categoriesRelations = relations(categories, ({ many }) => ({
+  recipeCategories: many(recipeCategories),
+}));
+
+export const recipeCategoriesRelations = relations(recipeCategories, ({ one }) => ({
+  recipe: one(recipe, {
+    fields: [recipeCategories.recipeId],
+    references: [recipe.id],
+  }),
+  category: one(categories, {
+    fields: [recipeCategories.categoryId],
+    references: [categories.id],
+  }),
+}));
+
+export const searchHistoryRelations = relations(searchHistory, ({ one }) => ({
+  user: one(users, {
+    fields: [searchHistory.userId],
+    references: [users.externalId],
+  }),
+}));
+
+// Relaciones para las nuevas tablas de colecciones
+export const collectionsRelations = relations(collections, ({ one, many }) => ({
+  user: one(users, {
+    fields: [collections.userId],
+    references: [users.externalId],
+  }),
+  collectionRecipes: many(collectionRecipes),
+}));
+
+export const collectionRecipesRelations = relations(collectionRecipes, ({ one }) => ({
+  collection: one(collections, {
+    fields: [collectionRecipes.collectionId],
+    references: [collections.id],
+  }),
+  recipe: one(recipe, {
+    fields: [collectionRecipes.recipeId],
+    references: [recipe.id],
   }),
 }));

@@ -1,6 +1,5 @@
 import express from 'express';
 
-import emojis from './routes/emojis';
 import recipes from './routes/recipes';
 import search from './routes/search';
 import ingredients from './routes/ingredients';
@@ -21,7 +20,6 @@ router.get('/', (req, res) => {
   });
 });
 
-router.use('/emojis', emojis);
 router.use('/recipes', recipes);
 router.use('/search', search);
 router.use('/ingredients', ingredients);

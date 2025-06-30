@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
 import { recipeComment, recipe, users, notification } from '../../db/schema';
-import { eq, and, desc, count } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { createCommentInput, updateCommentInput } from '../inputs/comments';
+import { clerkClient } from '@clerk/express';
 
 // Función auxiliar para crear notificación de comentario
 const createCommentNotification = async (commenterUserId: string, recipeOwnerId: string, recipeId: number, recipeTitle: string) => {
@@ -204,7 +205,7 @@ export const getComments = async (req: Request, res: Response) => {
                 username: clerkUser.username,
                 firstName: clerkUser.firstName,
                 lastName: clerkUser.lastName,
-                email: clerkUser.emailAddresses[0]?.emailAddress
+                email: clerkUser.emailAddresses[0]?.emailAddress,
               });
               
               // Guardar usuario en la DB para futuras consultas
@@ -307,7 +308,7 @@ export const updateComment = async (req: Request, res: Response) => {
       .from(recipeComment)
       .where(and(
         eq(recipeComment.id, commentId),
-        eq(recipeComment.userId, userId)
+        eq(recipeComment.userId, userId),
       ))
       .limit(1);
 
@@ -322,7 +323,7 @@ export const updateComment = async (req: Request, res: Response) => {
     const updatedComment = await db.update(recipeComment)
       .set({ 
         content,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(recipeComment.id, commentId))
       .returning();
@@ -373,7 +374,7 @@ export const deleteComment = async (req: Request, res: Response) => {
       .from(recipeComment)
       .where(and(
         eq(recipeComment.id, commentId),
-        eq(recipeComment.userId, userId)
+        eq(recipeComment.userId, userId),
       ))
       .limit(1);
 

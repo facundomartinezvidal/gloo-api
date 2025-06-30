@@ -86,7 +86,7 @@ export const createRecipe = async (req: Request, res: Response) => {
     const { title, description, estimatedTime, media, ingredients, instructions, servings } = req.body;
     const userId = req.params.userId;
     
-    console.log('🔧 Creating recipe with data:', { title, description, estimatedTime, ingredientsCount: ingredients?.length, instructionsCount: instructions?.length });
+    console.log('🔧 Creating recipe with data:', { title, media, description, estimatedTime, ingredientsCount: ingredients?.length, instructionsCount: instructions?.length });
     
     // Verificar si el usuario existe en la tabla local, si no, crearlo
     const existingUser = await db.select().from(users).where(eq(users.externalId, userId));

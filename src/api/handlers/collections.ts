@@ -53,34 +53,26 @@ export const createCollection = async (req: Request, res: Response) => {
 };
 
 // Obtener todas las colecciones de un usuario
-export const getUserCollections = async (req: Request, res: Response) => {
+export const getCollectionsByUser = async (req: Request, res: Response) => {
   try {
     const userId = req.params.userId;
 
     const userCollections = await db
-      .select({
-        id: collections.id,
-        name: collections.name,
-        description: collections.description,
-        icon: collections.icon,
-        color: collections.color,
-        isPublic: collections.isPublic,
-        createdAt: collections.createdAt,
-        updatedAt: collections.updatedAt,
-      })
+      .select()
       .from(collections)
-      .where(eq(collections.userId, userId));
+      .where(eq(collections.userId, userId))
+      .orderBy(collections.createdAt);
 
-    // Obtener el conteo de recetas para cada colección
+    // Agregar conteo de recetas por colección
     const collectionsWithCount = await Promise.all(
-      userCollections.map(async (collection) => {
+      userCollections.map(async (col) => {
         const recipeCount = await db
           .select({ count: count() })
           .from(collectionRecipes)
-          .where(eq(collectionRecipes.collectionId, collection.id));
+          .where(eq(collectionRecipes.collectionId, col.id));
 
         return {
-          ...collection,
+          ...col,
           recipeCount: recipeCount[0].count,
         };
       }),
@@ -129,7 +121,7 @@ export const getCollectionRecipes = async (req: Request, res: Response) => {
     }
 
     // Obtener las recetas de la colección
-    const collectionRecipes = await db
+    const recipesList = await db
       .select({
         recipeId: collectionRecipes.recipeId,
         addedAt: collectionRecipes.addedAt,
@@ -139,7 +131,7 @@ export const getCollectionRecipes = async (req: Request, res: Response) => {
       .innerJoin(recipe, eq(collectionRecipes.recipeId, recipe.id))
       .where(eq(collectionRecipes.collectionId, collectionId));
 
-    const recipeData = collectionRecipes.map(cr => ({
+    const recipeData = recipesList.map(cr => ({
       ...cr.recipe,
       addedAt: cr.addedAt,
     }));
@@ -174,53 +166,36 @@ export const ensureDefaultCollections = async (userId: string) => {
     // Crear colección "Favoritos" si no existe
     if (!existingNames.includes('Favoritos')) {
       await db.insert(collections).values({
-        userId,
         name: 'Favoritos',
         description: 'Tus recetas favoritas',
-        icon: 'heart',
-        color: '#FF6B6B',
-        isPublic: 'false',
+        userId,
       });
     }
 
     // Crear colección "Salty" si no existe
     if (!existingNames.includes('Salty')) {
       await db.insert(collections).values({
-        userId,
         name: 'Salty',
         description: 'Recetas saladas',
-        icon: 'restaurant',
-        color: '#4CAF50',
-        isPublic: 'false',
+        userId,
       });
     }
 
     // Crear colección "Dulce" si no existe
     if (!existingNames.includes('Dulce')) {
       await db.insert(collections).values({
-        userId,
         name: 'Dulce',
         description: 'Recetas dulces',
-        icon: 'ice-cream',
-        color: '#FF9800',
-        isPublic: 'false',
+        userId,
       });
     }
 
     // Devolver todas las colecciones actualizadas
     const updatedCollections = await db
-      .select({
-        id: collections.id,
-        name: collections.name,
-        description: collections.description,
-        icon: collections.icon,
-        color: collections.color,
-        isPublic: collections.isPublic,
-        createdAt: collections.createdAt,
-        updatedAt: collections.updatedAt,
-      })
+      .select()
       .from(collections)
-      .where(eq(collections.userId, userId));
+      .where(eq(collections.userId, userId))
+      .orderBy(collections.createdAt);
 
     return updatedCollections;
   } catch (error) {
@@ -238,7 +213,7 @@ export const ensureDefaultCollection = async (userId: string) => {
       .from(collections)
       .where(and(
         eq(collections.userId, userId),
-        eq(collections.name, 'Favoritos')
+        eq(collections.name, 'Favoritos'),
       ));
 
     if (existingDefault.length === 0) {
@@ -290,7 +265,7 @@ export const addRecipeToDefaultCollection = async (req: Request, res: Response) 
       .from(collectionRecipes)
       .where(and(
         eq(collectionRecipes.collectionId, defaultCollection.id),
-        eq(collectionRecipes.recipeId, recipeId)
+        eq(collectionRecipes.recipeId, recipeId),
       ));
 
     if (existingRelation.length > 0) {
@@ -331,7 +306,7 @@ export const removeRecipeFromDefaultCollection = async (req: Request, res: Respo
       .from(collections)
       .where(and(
         eq(collections.userId, userId),
-        eq(collections.name, 'Favoritos')
+        eq(collections.name, 'Favoritos'),    
       ));
 
     if (defaultCollection.length === 0) {
@@ -346,7 +321,7 @@ export const removeRecipeFromDefaultCollection = async (req: Request, res: Respo
       .delete(collectionRecipes)
       .where(and(
         eq(collectionRecipes.collectionId, defaultCollection[0].id),
-        eq(collectionRecipes.recipeId, recipeId)
+        eq(collectionRecipes.recipeId, recipeId),
       ));
 
     res.json({
@@ -463,7 +438,7 @@ export const ensureChangedCollection = async (userId: string) => {
       .from(collections)
       .where(and(
         eq(collections.userId, userId),
-        eq(collections.name, 'Changed')
+        eq(collections.name, 'Changed'),
       ));
 
     if (existingChanged.length === 0) {
@@ -515,7 +490,7 @@ export const addRecipeToChangedCollection = async (req: Request, res: Response) 
       .from(collectionRecipes)
       .where(and(
         eq(collectionRecipes.collectionId, changedCollection.id),
-        eq(collectionRecipes.recipeId, recipeId)
+        eq(collectionRecipes.recipeId, recipeId),
       ));
 
     if (existingRelation.length > 0) {
@@ -609,11 +584,11 @@ export const getCollectionsWithDefaultsAndCounts = async (req: Request, res: Res
     const userId = req.params.userId;
 
     // Asegurar que existan las colecciones por defecto
-    const collections = await ensureDefaultCollections(userId);
+    const userCollections = await ensureDefaultCollections(userId);
 
     // Agregar conteo de recetas por colección
     const collectionsWithCount = await Promise.all(
-      collections.map(async (col) => {
+      userCollections.map(async (col) => {
         const recipeCount = await db
           .select({ count: count() })
           .from(collectionRecipes)

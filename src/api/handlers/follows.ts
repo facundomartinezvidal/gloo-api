@@ -31,7 +31,7 @@ export const followUser = async (req: Request, res: Response) => {
       if (existingUser.length === 0) {
         try {
           // Intentar obtener datos del usuario desde Clerk
-          const clerkUser = await clerkClient.users.getUser(userId);
+          await clerkClient.users.getUser(userId);
         } catch (clerkError) {
           console.error(`Could not get user from Clerk for ${userId}:`, clerkError);
         }
@@ -50,7 +50,7 @@ export const followUser = async (req: Request, res: Response) => {
     };
 
     // Verificar que ambos usuarios existan, creándolos si es necesario
-    const [followerCreated, followingCreated] = await Promise.all([
+    await Promise.all([
       ensureUserExists(followerId),
       ensureUserExists(followingId),
     ]);

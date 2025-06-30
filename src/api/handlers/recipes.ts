@@ -198,14 +198,82 @@ export const createRecipe = async (req: Request, res: Response) => {
 
     // Add instructions if provided
     if (instructions && Array.isArray(instructions) && instructions.length > 0) {
-      const instructionsToInsert = instructions.map((inst, index) => ({
-        recipeId: newRecipe[0].id,
-        step: index + 1,
-        description: inst.description || inst.step || '',
-        image: inst.image || null,
-      }));
+      // Process each instruction and handle image uploads
+      const processedInstructions = await Promise.all(
+        instructions.map(async (inst, index) => {
+          let imageUrl: string | null = null;
 
-      await db.insert(instruction).values(instructionsToInsert);
+          // Only process image if provided
+          if (inst.image) {
+            // If image comes as base64, upload to Supabase Storage
+            if (inst.image.startsWith('data:')) {
+              try {
+                // Extract file type and base64 data
+                const [header, base64Data] = inst.image.split(',');
+                if (!header || !base64Data) {
+                  throw new Error('Formato de imagen base64 inválido');
+                }
+                
+                const mimeMatch = header.match(/data:([^;]+)/);
+                const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+                
+                // Validate that it's an image (only images for instructions)
+                if (!mimeType.startsWith('image/')) {
+                  throw new Error('Solo se permiten archivos de imagen para instrucciones');
+                }
+                
+                // Convert base64 to buffer
+                const buffer = Buffer.from(base64Data, 'base64');
+                
+                // Generate unique filename
+                const extension = mimeType.split('/')[1];
+                const fileName = `instructions/${newRecipe[0].id}/${Date.now()}-step-${index + 1}.${extension}`;
+                
+                // Upload file to Supabase Storage
+                const { error: uploadError } = await supabase.storage
+                  .from('recipe.content')
+                  .upload(fileName, buffer, {
+                    contentType: mimeType,
+                    upsert: false,
+                  });
+
+                if (uploadError) {
+                  console.error('Storage upload error:', uploadError);
+                  throw new Error(`Error al subir imagen: ${uploadError.message}`);
+                }
+
+                // Get public URL of the file
+                const { data: urlData } = supabase.storage
+                  .from('recipe.content')
+                  .getPublicUrl(fileName);
+
+                if (!urlData?.publicUrl) {
+                  throw new Error('No se pudo obtener la URL pública de la imagen');
+                }
+
+                imageUrl = urlData.publicUrl;
+                
+              } catch (uploadError) {
+                console.error('Error processing image for instruction:', uploadError);
+                // In case of error, don't save the instruction with base64
+                throw uploadError;
+              }
+            } else {
+              // If not base64, assume it's a valid URL
+              imageUrl = inst.image;
+            }
+          }
+
+          return {
+            recipeId: newRecipe[0].id,
+            step: index + 1,
+            description: inst.description || inst.step || '',
+            image: imageUrl,
+          };
+        }),
+      );
+
+      await db.insert(instruction).values(processedInstructions);
     }
 
     // Get the complete recipe with ingredients and instructions

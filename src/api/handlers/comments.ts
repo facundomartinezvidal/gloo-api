@@ -1,17 +1,20 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
 import { recipeComment, recipe, users, notification } from '../../db/schema';
-import { eq, and, desc } from 'drizzle-orm';
-import { clerkClient } from '@clerk/express';
-import { createCommentInput, updateCommentInput, getCommentsInput } from '../inputs/comments';
+import { eq, and, desc, count } from 'drizzle-orm';
+import { createCommentInput, updateCommentInput } from '../inputs/comments';
 
 // Función auxiliar para crear notificación de comentario
 const createCommentNotification = async (commenterUserId: string, recipeOwnerId: string, recipeId: number, recipeTitle: string) => {
   if (commenterUserId === recipeOwnerId) return; // No notificar si es el mismo usuario
 
   try {
-    const commenterUser = await clerkClient.users.getUser(commenterUserId);
-    const commenterName = commenterUser.username || commenterUser.firstName || 'Alguien';
+    const commenterUser = await db.select()
+      .from(users)
+      .where(eq(users.externalId, commenterUserId))
+      .limit(1);
+    
+    const commenterName = commenterUser[0]?.idSocialMedia || 'Alguien';
     
     await db.insert(notification).values({
       recipientId: recipeOwnerId,
@@ -118,7 +121,8 @@ export const createComment = async (req: Request, res: Response) => {
 export const getComments = async (req: Request, res: Response) => {
   try {
     const recipeId = parseInt(req.params.recipeId);
-    const { page = 1, limit = 20 } = getCommentsInput.parse(req.query);
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
 
     if (isNaN(recipeId)) {
       return res.status(400).json({
@@ -129,7 +133,7 @@ export const getComments = async (req: Request, res: Response) => {
 
     const offset = (page - 1) * limit;
 
-    // Obtener comentarios con paginación
+    // Obtener comentarios con información del usuario
     const comments = await db.select({
       id: recipeComment.id,
       recipeId: recipeComment.recipeId,
@@ -137,8 +141,11 @@ export const getComments = async (req: Request, res: Response) => {
       content: recipeComment.content,
       createdAt: recipeComment.createdAt,
       updatedAt: recipeComment.updatedAt,
+      userUsername: users.idSocialMedia,
+      userDescription: users.description,
     })
       .from(recipeComment)
+      .leftJoin(users, eq(recipeComment.userId, users.externalId))
       .where(eq(recipeComment.recipeId, recipeId))
       .orderBy(desc(recipeComment.createdAt))
       .limit(limit)
@@ -300,7 +307,7 @@ export const updateComment = async (req: Request, res: Response) => {
       .from(recipeComment)
       .where(and(
         eq(recipeComment.id, commentId),
-        eq(recipeComment.userId, userId),
+        eq(recipeComment.userId, userId)
       ))
       .limit(1);
 
@@ -315,14 +322,29 @@ export const updateComment = async (req: Request, res: Response) => {
     const updatedComment = await db.update(recipeComment)
       .set({ 
         content,
-        updatedAt: new Date(),
+        updatedAt: new Date()
       })
       .where(eq(recipeComment.id, commentId))
       .returning();
 
+    // Obtener información del usuario
+    const user = await db.select()
+      .from(users)
+      .where(eq(users.externalId, userId))
+      .limit(1);
+
+    const commentWithUser = {
+      ...updatedComment[0],
+      user: {
+        id: user[0]?.externalId,
+        username: user[0]?.idSocialMedia,
+        description: user[0]?.description,
+      },
+    };
+
     res.json({
       success: true,
-      data: updatedComment[0],
+      data: commentWithUser,
       message: 'Comment updated successfully',
     });
   } catch (error) {
@@ -351,7 +373,7 @@ export const deleteComment = async (req: Request, res: Response) => {
       .from(recipeComment)
       .where(and(
         eq(recipeComment.id, commentId),
-        eq(recipeComment.userId, userId),
+        eq(recipeComment.userId, userId)
       ))
       .limit(1);
 

@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
 import { users } from '../../db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, count, avg } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import { updateUserInput, getUserInput } from '../inputs/users';
+import { recipe, follow, recipeLike, recipeComment, rate } from '../../db/schema';
 
 export const getUser = async (req: Request, res: Response) => {
   try {
@@ -133,6 +134,81 @@ export const updateUser = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error updating user:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    });
+  }
+};
+
+export const getUserStats = async (req: Request, res: Response) => {
+  try {
+    const userId = req.params.userId;
+
+    // Obtener estadísticas del usuario
+    const [
+      recipesCount,
+      followersCount,
+      followingCount,
+      totalLikes,
+      totalComments,
+      totalRatings,
+      averageRating
+    ] = await Promise.all([
+      // Contar recetas del usuario
+      db.select({ count: count() }).from(recipe).where(eq(recipe.userId, userId)),
+      
+      // Contar seguidores
+      db.select({ count: count() }).from(follow).where(eq(follow.followingId, userId)),
+      
+      // Contar usuarios que sigue
+      db.select({ count: count() }).from(follow).where(eq(follow.followerId, userId)),
+      
+      // Contar likes totales en sus recetas
+      db.select({ count: count() })
+        .from(recipeLike)
+        .innerJoin(recipe, eq(recipeLike.recipeId, recipe.id))
+        .where(eq(recipe.userId, userId)),
+      
+      // Contar comentarios totales en sus recetas
+      db.select({ count: count() })
+        .from(recipeComment)
+        .innerJoin(recipe, eq(recipeComment.recipeId, recipe.id))
+        .where(eq(recipe.userId, userId)),
+      
+      // Contar ratings totales en sus recetas
+      db.select({ count: count() })
+        .from(rate)
+        .innerJoin(recipe, eq(rate.recipeId, recipe.id))
+        .where(eq(recipe.userId, userId)),
+      
+      // Promedio de ratings en sus recetas
+      db.select({ avg: avg(rate.rate) })
+        .from(rate)
+        .innerJoin(recipe, eq(rate.recipeId, recipe.id))
+        .where(eq(recipe.userId, userId))
+    ]);
+
+    const stats = {
+      recipes: recipesCount[0].count,
+      followers: followersCount[0].count,
+      following: followingCount[0].count,
+      totalLikes: totalLikes[0].count,
+      totalComments: totalComments[0].count,
+      totalRatings: totalRatings[0].count,
+      averageRating: averageRating[0].avg ? parseFloat(averageRating[0].avg.toString()) : 0,
+      // Calcular engagement rate
+      engagementRate: recipesCount[0].count > 0 
+        ? ((totalLikes[0].count + totalComments[0].count) / recipesCount[0].count).toFixed(2)
+        : 0
+    };
+
+    res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    console.error('Error getting user stats:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

@@ -137,7 +137,16 @@ export const getComments = async (req: Request, res: Response) => {
     const commentsWithUserInfo = await Promise.all(
       comments.map(async (comment) => {
         try {
+          console.log(`Fetching user info for userId: ${comment.userId}`);
           const user = await clerkClient.users.getUser(comment.userId);
+          console.log(`User data retrieved for ${comment.userId}:`, {
+            id: user.id,
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.emailAddresses[0]?.emailAddress
+          });
+          
           return {
             ...comment,
             user: {
@@ -150,10 +159,48 @@ export const getComments = async (req: Request, res: Response) => {
             },
           };
         } catch (error) {
-          console.error(`Error getting user info for ${comment.userId}:`, error);
+          console.error(`Error getting user info from Clerk for ${comment.userId}:`, error);
+          
+          // Fallback: Intentar obtener información básica del usuario desde la base de datos
+          try {
+            console.log(`Trying to get user from DB for ${comment.userId}`);
+            const dbUser = await db.select()
+              .from(users)
+              .where(eq(users.externalId, comment.userId))
+              .limit(1);
+            
+            if (dbUser.length > 0) {
+              console.log(`Found user in DB for ${comment.userId}:`, dbUser[0]);
+              return {
+                ...comment,
+                user: {
+                  id: comment.userId,
+                  username: dbUser[0].username || 'Usuario',
+                  email: dbUser[0].email,
+                  imageUrl: dbUser[0].imageUrl,
+                  firstName: dbUser[0].firstName,
+                  lastName: dbUser[0].lastName,
+                },
+              };
+            } else {
+              console.log(`No user found in DB for ${comment.userId}`);
+            }
+          } catch (dbError) {
+            console.error(`Error getting user from DB for ${comment.userId}:`, dbError);
+          }
+          
+          // Último fallback: usuario genérico
+          console.log(`Using fallback user data for ${comment.userId}`);
           return {
             ...comment,
-            user: null,
+            user: {
+              id: comment.userId,
+              username: 'Usuario',
+              email: null,
+              imageUrl: null,
+              firstName: null,
+              lastName: null,
+            },
           };
         }
       }),

@@ -3,6 +3,7 @@ import { db } from '../../db';
 import { recipeComment, recipe, users, notification } from '../../db/schema';
 import { eq, and, desc, count } from 'drizzle-orm';
 import { createCommentInput, updateCommentInput } from '../inputs/comments';
+import { clerkClient } from '@clerk/express';
 
 // Función auxiliar para crear notificación de comentario
 const createCommentNotification = async (commenterUserId: string, recipeOwnerId: string, recipeId: number, recipeTitle: string) => {

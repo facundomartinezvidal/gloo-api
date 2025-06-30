@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
 import { ingredient, instruction, rate, recipe } from '../../db/schema';
-import { count, eq } from 'drizzle-orm';
+import { count, eq, asc } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
 import { supabase } from '../lib/supabase';
@@ -74,8 +74,10 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
 
 export const createRecipe = async (req: Request, res: Response) => {
   try {
-    const { title, description, estimatedTime, media } = createRecipeInput.parse(req.body);
+    const { title, description, estimatedTime, media, ingredients, instructions, servings } = req.body;
     const userId = req.params.userId;
+    
+    console.log('🔧 Creating recipe with data:', { title, description, estimatedTime, ingredientsCount: ingredients?.length, instructionsCount: instructions?.length });
     
     let mediaUrl: string | null = null;
     let mediaType: 'image' | 'video' | null = null;
@@ -140,6 +142,7 @@ export const createRecipe = async (req: Request, res: Response) => {
       }
     }
 
+    // Create the recipe first
     const newRecipe = await db.insert(recipe).values({
       title,
       description,
@@ -147,11 +150,55 @@ export const createRecipe = async (req: Request, res: Response) => {
       userId,
       image: mediaUrl,
       mediaType: mediaType,
+      servings: servings || 4,
     }).returning();
+
+    console.log('🔧 Recipe created with ID:', newRecipe[0].id);
+
+    // Add ingredients if provided
+    if (ingredients && Array.isArray(ingredients) && ingredients.length > 0) {
+      const ingredientsToInsert = ingredients.map(ing => ({
+        recipeId: newRecipe[0].id,
+        name: ing.name,
+        quantity: ing.quantity || 1,
+        unit: ing.unit || '',
+        description: ing.description || null,
+      }));
+
+      await db.insert(ingredient).values(ingredientsToInsert);
+      console.log('🔧 Added', ingredientsToInsert.length, 'ingredients');
+    }
+
+    // Add instructions if provided
+    if (instructions && Array.isArray(instructions) && instructions.length > 0) {
+      const instructionsToInsert = instructions.map((inst, index) => ({
+        recipeId: newRecipe[0].id,
+        step: index + 1,
+        description: inst.description || inst.step || '',
+        image: inst.image || null,
+      }));
+
+      await db.insert(instruction).values(instructionsToInsert);
+      console.log('🔧 Added', instructionsToInsert.length, 'instructions');
+    }
+
+    // Get the complete recipe with ingredients and instructions
+    const [recipeIngredients, recipeInstructions] = await Promise.all([
+      db.select().from(ingredient).where(eq(ingredient.recipeId, newRecipe[0].id)),
+      db.select().from(instruction).where(eq(instruction.recipeId, newRecipe[0].id)).orderBy(asc(instruction.step)),
+    ]);
+
+    const completeRecipe = {
+      ...newRecipe[0],
+      ingredients: recipeIngredients,
+      instructions: recipeInstructions,
+    };
+
+    console.log('🔧 Recipe creation completed successfully');
 
     res.json({
       success: true,
-      data: newRecipe[0],
+      data: completeRecipe,
     });
   } catch (error) {
     console.error('Error creating recipe:', error);

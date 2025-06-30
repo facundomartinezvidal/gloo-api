@@ -16,8 +16,30 @@ const app = express();
 
 app.use(morgan('dev'));
 app.use(helmet());
-app.use(cors());
+
+// Configuración CORS más específica para evitar redirecciones en preflight
+app.use(cors({
+  origin: true, // Permitir todos los orígenes en desarrollo
+  credentials: true, // Permitir credenciales
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Métodos permitidos
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'], // Headers permitidos
+  preflightContinue: false, // No continuar con preflight
+  optionsSuccessStatus: 204 // Status para OPTIONS exitoso
+}));
+
 app.use(express.json());
+
+// Middleware para manejar peticiones OPTIONS específicamente
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 app.get('/', async (req, res) => {
   const recipes = await db.select().from(recipe);

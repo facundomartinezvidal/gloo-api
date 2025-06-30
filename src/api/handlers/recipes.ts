@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
-import { ingredient, instruction, rate, recipe } from '../../db/schema';
-import { count, eq, asc } from 'drizzle-orm';
+import { ingredient, instruction, rate, recipe, recipeLike, recipeComment } from '../../db/schema';
+import { count, eq, asc, avg } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
 import { supabase } from '../lib/supabase';
@@ -10,6 +10,7 @@ export const getAllRecipes = async (req: Request, res: Response) => {
   const recipes = await db.select().from(recipe);
   const data = await Promise.all(recipes.map(async (r) => {
     const rates = await db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id));
+    const comments = await db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id));
     const ingredients = await db.select().from(ingredient).where(eq(ingredient.recipeId, r.id));
     const instructions = await db.select().from(instruction).where(eq(instruction.recipeId, r.id));
     const user = await clerkClient.users.getUser(r.userId as string);
@@ -22,6 +23,7 @@ export const getAllRecipes = async (req: Request, res: Response) => {
         imageUrl: user.imageUrl,
       },
       rates: rates[0].count,
+      comments: comments[0].count,
       ingredients: ingredients,
       instructions: instructions,
     };
@@ -41,9 +43,14 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
     
     // Mapear cada receta con sus datos completos
     const data = await Promise.all(recipes.map(async (r) => {
-      const rates = await db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id));
-      const ingredients = await db.select().from(ingredient).where(eq(ingredient.recipeId, r.id));
-      const instructions = await db.select().from(instruction).where(eq(instruction.recipeId, r.id));
+      const [rates, comments, ingredients, instructions, averageRating] = await Promise.all([
+        db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id)),
+        db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
+        db.select().from(ingredient).where(eq(ingredient.recipeId, r.id)),
+        db.select().from(instruction).where(eq(instruction.recipeId, r.id)),
+        db.select({ avg: avg(rate.rate) }).from(rate).where(eq(rate.recipeId, r.id))
+      ]);
+      
       const user = await clerkClient.users.getUser(r.userId as string);
       return {
         ...r,
@@ -54,8 +61,10 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
           imageUrl: user.imageUrl,
         },
         rates: rates[0].count,
+        comments: comments[0].count,
         ingredients: ingredients,
         instructions: instructions,
+        averageRating: averageRating[0].avg ? parseFloat(averageRating[0].avg.toString()) : 0,
       };
     }));
     
@@ -361,6 +370,66 @@ export const deleteRecipe = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error deleting recipe:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+    });
+  }
+};
+
+export const getTrendingRecipes = async (req: Request, res: Response) => {
+  try {
+    // Obtener todas las recetas con sus likes y ratings
+    const recipes = await db.select().from(recipe);
+    
+    const recipesWithStats = await Promise.all(recipes.map(async (r) => {
+      const rates = await db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id));
+      const likes = await db.select({ count: count() }).from(recipeLike).where(eq(recipeLike.recipeId, r.id));
+      const comments = await db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id));
+      const ingredients = await db.select().from(ingredient).where(eq(ingredient.recipeId, r.id));
+      const instructions = await db.select().from(instruction).where(eq(instruction.recipeId, r.id));
+      
+      let user;
+      try {
+        user = await clerkClient.users.getUser(r.userId as string);
+      } catch (error) {
+        user = {
+          id: r.userId,
+          username: 'Usuario',
+          email: '',
+          imageUrl: null,
+        };
+      }
+      
+      return {
+        ...r,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.emailAddresses?.[0]?.emailAddress || '', 
+          imageUrl: user.imageUrl,
+        },
+        rates: rates[0].count,
+        likes: likes[0].count,
+        comments: comments[0].count,
+        ingredients: ingredients,
+        instructions: instructions,
+        // Calcular score de trending basado en likes y ratings
+        trendingScore: (rates[0].count * 2) + likes[0].count,
+      };
+    }));
+    
+    // Ordenar por score de trending (descendente) y tomar las primeras 10
+    const trendingRecipes = recipesWithStats
+      .sort((a, b) => b.trendingScore - a.trendingScore)
+      .slice(0, 10);
+    
+    res.json({
+      success: true,
+      data: trendingRecipes,
+    });
+  } catch (error) {
+    console.error('Error getting trending recipes:', error);
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
 import { recipeComment, recipe, users, notification } from '../../db/schema';
-import { eq, and, desc, count } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { createCommentInput, updateCommentInput } from '../inputs/comments';
 import { clerkClient } from '@clerk/express';
 
@@ -186,7 +186,7 @@ export const getComments = async (req: Request, res: Response) => {
                 ...comment,
                 user: {
                   id: comment.userId,
-                  username: 'Usuario',
+                  username: dbUser[0].idSocialMedia || 'Usuario',
                   email: null,
                   imageUrl: null,
                   firstName: null,
@@ -195,65 +195,29 @@ export const getComments = async (req: Request, res: Response) => {
               };
             }
           } else {
-            console.log(`No user found in DB for ${comment.userId}, trying Clerk`);
-            
-            // Si no está en la DB, intentar con Clerk
-            try {
-              const clerkUser = await clerkClient.users.getUser(comment.userId);
-              console.log(`User data retrieved from Clerk for ${comment.userId}:`, {
-                id: clerkUser.id,
-                username: clerkUser.username,
+            // Si no está en la DB, intentar obtener de Clerk
+            console.log(`User not in DB, trying Clerk for ${comment.userId}`);
+            const clerkUser = await clerkClient.users.getUser(comment.userId);
+            return {
+              ...comment,
+              user: {
+                id: comment.userId,
+                username: clerkUser.username || 'Usuario',
+                email: clerkUser.emailAddresses[0]?.emailAddress,
+                imageUrl: clerkUser.imageUrl,
                 firstName: clerkUser.firstName,
                 lastName: clerkUser.lastName,
-                email: clerkUser.emailAddresses[0]?.emailAddress
-              });
-              
-              // Guardar usuario en la DB para futuras consultas
-              await db.insert(users).values({
-                externalId: comment.userId,
-                description: null,
-                idSocialMedia: null,
-                createdBy: comment.userId,
-              });
-              
-              return {
-                ...comment,
-                user: {
-                  id: comment.userId,
-                  username: clerkUser.username || 'Usuario',
-                  email: clerkUser.emailAddresses[0]?.emailAddress,
-                  imageUrl: clerkUser.imageUrl,
-                  firstName: clerkUser.firstName,
-                  lastName: clerkUser.lastName,
-                },
-              };
-            } catch (clerkError) {
-              console.error(`Error getting user from Clerk for ${comment.userId}:`, clerkError);
-              
-              // Último fallback: usuario genérico
-              console.log(`Using fallback user data for ${comment.userId}`);
-              return {
-                ...comment,
-                user: {
-                  id: comment.userId,
-                  username: 'Usuario',
-                  email: null,
-                  imageUrl: null,
-                  firstName: null,
-                  lastName: null,
-                },
-              };
-            }
+              },
+            };
           }
         } catch (error) {
-          console.error(`Error processing user data for ${comment.userId}:`, error);
-          
-          // Fallback final
+          console.error(`Error getting user info for ${comment.userId}:`, error);
+          // Fallback con datos básicos
           return {
             ...comment,
             user: {
               id: comment.userId,
-              username: 'Usuario',
+              username: comment.userUsername || 'Usuario',
               email: null,
               imageUrl: null,
               firstName: null,
@@ -308,7 +272,7 @@ export const updateComment = async (req: Request, res: Response) => {
       .from(recipeComment)
       .where(and(
         eq(recipeComment.id, commentId),
-        eq(recipeComment.userId, userId)
+        eq(recipeComment.userId, userId),
       ))
       .limit(1);
 
@@ -323,7 +287,7 @@ export const updateComment = async (req: Request, res: Response) => {
     const updatedComment = await db.update(recipeComment)
       .set({ 
         content,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(recipeComment.id, commentId))
       .returning();
@@ -374,7 +338,7 @@ export const deleteComment = async (req: Request, res: Response) => {
       .from(recipeComment)
       .where(and(
         eq(recipeComment.id, commentId),
-        eq(recipeComment.userId, userId)
+        eq(recipeComment.userId, userId),
       ))
       .limit(1);
 

@@ -86,14 +86,10 @@ export const createRecipe = async (req: Request, res: Response) => {
     const { title, description, estimatedTime, media, ingredients, instructions, servings } = req.body;
     const userId = req.params.userId;
     
-    console.log('🔧 Creating recipe with data:', { title, media, description, estimatedTime, ingredientsCount: ingredients?.length, instructionsCount: instructions?.length });
-    
     // Verificar si el usuario existe en la tabla local, si no, crearlo
     const existingUser = await db.select().from(users).where(eq(users.externalId, userId));
     
     if (existingUser.length === 0) {
-      console.log('🔧 User not found in local database, creating user:', userId);
-      
       try {
         // Verificar que el usuario existe en Clerk
         await clerkClient.users.getUser(userId);
@@ -104,8 +100,6 @@ export const createRecipe = async (req: Request, res: Response) => {
           description: null,
           idSocialMedia: null,
         });
-        
-        console.log('🔧 User created successfully in local database');
       } catch (clerkError) {
         console.error('Error fetching user from Clerk:', clerkError);
         return res.status(400).json({
@@ -189,8 +183,6 @@ export const createRecipe = async (req: Request, res: Response) => {
       servings: servings || 4,
     }).returning();
 
-    console.log('🔧 Recipe created with ID:', newRecipe[0].id);
-
     // Add ingredients if provided
     if (ingredients && Array.isArray(ingredients) && ingredients.length > 0) {
       const ingredientsToInsert = ingredients.map(ing => ({
@@ -202,7 +194,6 @@ export const createRecipe = async (req: Request, res: Response) => {
       }));
 
       await db.insert(ingredient).values(ingredientsToInsert);
-      console.log('🔧 Added', ingredientsToInsert.length, 'ingredients');
     }
 
     // Add instructions if provided
@@ -215,7 +206,6 @@ export const createRecipe = async (req: Request, res: Response) => {
       }));
 
       await db.insert(instruction).values(instructionsToInsert);
-      console.log('🔧 Added', instructionsToInsert.length, 'instructions');
     }
 
     // Get the complete recipe with ingredients and instructions
@@ -229,8 +219,6 @@ export const createRecipe = async (req: Request, res: Response) => {
       ingredients: recipeIngredients,
       instructions: recipeInstructions,
     };
-
-    console.log('🔧 Recipe creation completed successfully');
 
     res.json({
       success: true,

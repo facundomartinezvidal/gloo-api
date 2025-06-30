@@ -29,40 +29,48 @@ export const createInstruction = async (req: Request, res: Response) => {
 
           // If image comes as base64, upload to Supabase Storage
           if (inst.image.startsWith('data:')) {
-            // Extract file type and base64 data
-            const [header, base64Data] = inst.image.split(',');
-            const mimeMatch = header.match(/data:([^;]+)/);
-            const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-            
-            // Validate that it's an image (only images for instructions)
-            if (!mimeType.startsWith('image/')) {
-              throw new Error('Only image files are allowed for instructions');
+            try {
+              // Extract file type and base64 data
+              const [header, base64Data] = inst.image.split(',');
+              const mimeMatch = header.match(/data:([^;]+)/);
+              const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+              
+              // Validate that it's an image (only images for instructions)
+              if (!mimeType.startsWith('image/')) {
+                throw new Error('Only image files are allowed for instructions');
+              }
+              
+              // Convert base64 to buffer
+              const buffer = Buffer.from(base64Data, 'base64');
+              
+              // Generate unique filename
+              const extension = mimeType.split('/')[1];
+              const fileName = `instructions/${recipeId}/${Date.now()}-step-${inst.step}.${extension}`;
+              
+              // Upload file to Supabase Storage
+              const { error: uploadError } = await supabase.storage
+                .from('recipe.content')
+                .upload(fileName, buffer, {
+                  contentType: mimeType,
+                });
+
+              if (uploadError) {
+                console.error('Upload error:', uploadError);
+                throw new Error('Error uploading image: ' + uploadError.message);
+              }
+
+              // Get public URL of the file
+              const { data: urlData } = supabase.storage
+                .from('recipe.content')
+                .getPublicUrl(fileName);
+
+              imageUrl = urlData.publicUrl;
+              
+            } catch (uploadError) {
+              console.error('Error processing image:', uploadError);
+              // En caso de error, mantener la imagen como null en lugar de guardar el base64
+              imageUrl = null;
             }
-            
-            // Convert base64 to buffer
-            const buffer = Buffer.from(base64Data, 'base64');
-            
-            // Generate unique filename
-            const extension = mimeType.split('/')[1];
-            const fileName = `instructions/${recipeId}/${Date.now()}-step-${inst.step}.${extension}`;
-            
-            // Upload file to Supabase Storage
-            const { error: uploadError } = await supabase.storage
-              .from('recipe.content')
-              .upload(fileName, buffer, {
-                contentType: mimeType,
-              });
-
-            if (uploadError) {
-              throw new Error('Error uploading image: ' + uploadError.message);
-            }
-
-            // Get public URL of the file
-            const { data: urlData } = supabase.storage
-              .from('recipe.content')
-              .getPublicUrl(fileName);
-
-            imageUrl = urlData.publicUrl;
           }
         }
 
@@ -121,46 +129,56 @@ export const updateInstruction = async (req: Request, res: Response) => {
 
     // Procesar imagen si se proporciona
     if (image && image.startsWith('data:')) {
-      // Extraer tipo de archivo y datos base64
-      const [header, base64Data] = image.split(',');
-      const mimeMatch = header.match(/data:([^;]+)/);
-      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      
-      // Validar que sea una imagen
-      if (!mimeType.startsWith('image/')) {
+      try {
+        // Extraer tipo de archivo y datos base64
+        const [header, base64Data] = image.split(',');
+        const mimeMatch = header.match(/data:([^;]+)/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+        
+        // Validar que sea una imagen
+        if (!mimeType.startsWith('image/')) {
+          return res.status(400).json({
+            success: false,
+            error: 'Solo se permiten archivos de imagen para instrucciones',
+          });
+        }
+        
+        // Convertir base64 a buffer
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        // Generar nombre único de archivo
+        const extension = mimeType.split('/')[1];
+        const fileName = `instructions/${existingInstruction[0].recipeId}/${Date.now()}-step-${step}.${extension}`;
+        
+        // Subir archivo a Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('recipe.content')
+          .upload(fileName, buffer, {
+            contentType: mimeType,
+          });
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          return res.status(400).json({
+            success: false,
+            error: 'Error al subir imagen: ' + uploadError.message,
+          });
+        }
+
+        // Obtener URL pública del archivo
+        const { data: urlData } = supabase.storage
+          .from('recipe.content')
+          .getPublicUrl(fileName);
+
+        imageUrl = urlData.publicUrl;
+        
+      } catch (uploadError) {
+        console.error('Error processing image:', uploadError);
         return res.status(400).json({
           success: false,
-          error: 'Solo se permiten archivos de imagen para instrucciones',
+          error: 'Error al procesar la imagen',
         });
       }
-      
-      // Convertir base64 a buffer
-      const buffer = Buffer.from(base64Data, 'base64');
-      
-      // Generar nombre único de archivo
-      const extension = mimeType.split('/')[1];
-      const fileName = `instructions/${existingInstruction[0].recipeId}/${Date.now()}-step-${step}.${extension}`;
-      
-      // Subir archivo a Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('recipe.content')
-        .upload(fileName, buffer, {
-          contentType: mimeType,
-        });
-
-      if (uploadError) {
-        return res.status(400).json({
-          success: false,
-          error: 'Error al subir imagen: ' + uploadError.message,
-        });
-      }
-
-      // Obtener URL pública del archivo
-      const { data: urlData } = supabase.storage
-        .from('recipe.content')
-        .getPublicUrl(fileName);
-
-      imageUrl = urlData.publicUrl;
     }
 
     // Actualizar la instrucción

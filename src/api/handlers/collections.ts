@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
 import { collections, collectionRecipes, recipe } from '../../db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, count } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import { 
   createCollectionInput,
@@ -13,24 +13,41 @@ import {
 // Crear una nueva colección
 export const createCollection = async (req: Request, res: Response) => {
   try {
-    const validatedData = createCollectionInput.parse(req.body);
+    const { name, description } = createCollectionInput.parse(req.body);
     const userId = req.params.userId;
 
+    // Verificar si ya existe una colección con el mismo nombre para este usuario
+    const existingCollection = await db.select()
+      .from(collections)
+      .where(and(
+        eq(collections.name, name),
+        eq(collections.userId, userId),
+      ))
+      .limit(1);
+
+    if (existingCollection.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Collection with this name already exists',
+      });
+    }
+
     const newCollection = await db.insert(collections).values({
-      ...validatedData,
+      name,
+      description,
       userId,
     }).returning();
 
-    res.status(201).json({
+    res.json({
       success: true,
       data: newCollection[0],
-      message: 'Colección creada exitosamente',
+      message: 'Collection created successfully',
     });
   } catch (error) {
-    console.error('Error creando colección:', error);
+    console.error('Error creating collection:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor',
+      error: 'Internal server error',
     });
   }
 };
@@ -39,7 +56,6 @@ export const createCollection = async (req: Request, res: Response) => {
 export const getUserCollections = async (req: Request, res: Response) => {
   try {
     const userId = req.params.userId;
-    console.log('Getting collections for user:', userId);
 
     const userCollections = await db
       .select({
@@ -55,34 +71,30 @@ export const getUserCollections = async (req: Request, res: Response) => {
       .from(collections)
       .where(eq(collections.userId, userId));
 
-    console.log('Found collections:', userCollections);
-
     // Obtener el conteo de recetas para cada colección
     const collectionsWithCount = await Promise.all(
       userCollections.map(async (collection) => {
         const recipeCount = await db
-          .select()
+          .select({ count: count() })
           .from(collectionRecipes)
           .where(eq(collectionRecipes.collectionId, collection.id));
 
         return {
           ...collection,
-          recipeCount: recipeCount.length,
+          recipeCount: recipeCount[0].count,
         };
       }),
     );
-
-    console.log('Collections with count:', collectionsWithCount);
 
     res.json({
       success: true,
       data: collectionsWithCount,
     });
   } catch (error) {
-    console.error('Error obteniendo colecciones:', error);
+    console.error('Error getting collections:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor',
+      error: 'Internal server error',
     });
   }
 };
@@ -93,70 +105,57 @@ export const getCollectionRecipes = async (req: Request, res: Response) => {
     const collectionId = parseInt(req.params.collectionId);
     const userId = req.params.userId;
 
+    if (isNaN(collectionId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid collection ID',
+      });
+    }
+
     // Verificar que la colección pertenece al usuario
-    const collection = await db
-      .select()
+    const collectionExists = await db.select()
       .from(collections)
       .where(and(
         eq(collections.id, collectionId),
         eq(collections.userId, userId),
-      ));
+      ))
+      .limit(1);
 
-    if (collection.length === 0) {
+    if (collectionExists.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Colección no encontrada',
+        error: 'Collection not found or does not belong to this user',
       });
     }
 
-    // Obtener las recetas de la colección con información completa
-    const recipesData = await db
+    // Obtener las recetas de la colección
+    const collectionRecipes = await db
       .select({
-        recipe: recipe,
+        recipeId: collectionRecipes.recipeId,
         addedAt: collectionRecipes.addedAt,
+        recipe: recipe,
       })
       .from(collectionRecipes)
       .innerJoin(recipe, eq(collectionRecipes.recipeId, recipe.id))
       .where(eq(collectionRecipes.collectionId, collectionId));
 
-    // Enriquecer con información del usuario que creó cada receta
-    const enrichedRecipes = await Promise.all(
-      recipesData.map(async (item) => {
-        try {
-          const user = await clerkClient.users.getUser(item.recipe.userId as string);
-          return {
-            ...item.recipe,
-            addedAt: item.addedAt,
-            user: {
-              id: user.id,
-              username: user.username,
-              email: user.emailAddresses[0]?.emailAddress,
-              imageUrl: user.imageUrl,
-            },
-          };
-        } catch (error) {
-          console.error('Error obteniendo información del usuario:', error);
-          return {
-            ...item.recipe,
-            addedAt: item.addedAt,
-            user: null,
-          };
-        }
-      }),
-    );
+    const recipeData = collectionRecipes.map(cr => ({
+      ...cr.recipe,
+      addedAt: cr.addedAt,
+    }));
 
     res.json({
       success: true,
       data: {
-        collection: collection[0],
-        recipes: enrichedRecipes,
+        collection: collectionExists[0],
+        recipes: recipeData,
       },
     });
   } catch (error) {
-    console.error('Error obteniendo recetas de la colección:', error);
+    console.error('Error getting collection recipes:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor',
+      error: 'Internal server error',
     });
   }
 };
@@ -164,62 +163,51 @@ export const getCollectionRecipes = async (req: Request, res: Response) => {
 // Crear colecciones por defecto para un usuario si no existen
 export const ensureDefaultCollections = async (userId: string) => {
   try {
-    console.log('Ensuring default collections for user:', userId);
-    
-    // Verificar si ya existen las colecciones por defecto
+    // Verificar qué colecciones por defecto ya existen
     const existingCollections = await db
       .select()
       .from(collections)
       .where(eq(collections.userId, userId));
 
-    console.log('Existing collections:', existingCollections);
+    const existingNames = existingCollections.map(col => col.name);
 
-    const existingNames = existingCollections.map(c => c.name);
-    console.log('Existing collection names:', existingNames);
-    
     // Crear colección "Favoritos" si no existe
     if (!existingNames.includes('Favoritos')) {
-      console.log('Creating Favoritos collection...');
       await db.insert(collections).values({
         userId,
         name: 'Favoritos',
-        description: 'Mis recetas favoritas',
+        description: 'Tus recetas favoritas',
         icon: 'heart',
         color: '#FF6B6B',
         isPublic: 'false',
       });
-      console.log('Favoritos collection created');
     }
 
     // Crear colección "Salty" si no existe
     if (!existingNames.includes('Salty')) {
-      console.log('Creating Salty collection...');
       await db.insert(collections).values({
         userId,
         name: 'Salty',
-        description: 'Recetas saladas que me encantan',
+        description: 'Recetas saladas',
         icon: 'restaurant',
         color: '#4CAF50',
         isPublic: 'false',
       });
-      console.log('Salty collection created');
     }
 
     // Crear colección "Dulce" si no existe
     if (!existingNames.includes('Dulce')) {
-      console.log('Creating Dulce collection...');
       await db.insert(collections).values({
         userId,
         name: 'Dulce',
-        description: 'Recetas dulces y postres',
+        description: 'Recetas dulces',
         icon: 'ice-cream',
         color: '#FF9800',
         isPublic: 'false',
       });
-      console.log('Dulce collection created');
     }
 
-    // Retornar todas las colecciones del usuario con conteo de recetas
+    // Devolver todas las colecciones actualizadas
     const updatedCollections = await db
       .select({
         id: collections.id,
@@ -234,26 +222,7 @@ export const ensureDefaultCollections = async (userId: string) => {
       .from(collections)
       .where(eq(collections.userId, userId));
 
-    console.log('Updated collections:', updatedCollections);
-
-    // Obtener el conteo de recetas para cada colección
-    const collectionsWithCount = await Promise.all(
-      updatedCollections.map(async (collection) => {
-        const recipeCount = await db
-          .select()
-          .from(collectionRecipes)
-          .where(eq(collectionRecipes.collectionId, collection.id));
-
-        return {
-          ...collection,
-          recipeCount: recipeCount.length,
-        };
-      }),
-    );
-
-    console.log('Final collections with count:', collectionsWithCount);
-
-    return collectionsWithCount;
+    return updatedCollections;
   } catch (error) {
     console.error('Error ensuring default collections:', error);
     throw error;
@@ -631,6 +600,106 @@ export const getChangedCollectionRecipes = async (req: Request, res: Response) =
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',
+    });
+  }
+};
+
+export const getCollectionsWithDefaultsAndCounts = async (req: Request, res: Response) => {
+  try {
+    const userId = req.params.userId;
+
+    // Asegurar que existan las colecciones por defecto
+    const collections = await ensureDefaultCollections(userId);
+
+    // Agregar conteo de recetas por colección
+    const collectionsWithCount = await Promise.all(
+      collections.map(async (col) => {
+        const recipeCount = await db
+          .select({ count: count() })
+          .from(collectionRecipes)
+          .where(eq(collectionRecipes.collectionId, col.id));
+
+        return {
+          ...col,
+          recipeCount: recipeCount[0].count,
+        };
+      }),
+    );
+
+    res.json({
+      success: true,
+      data: collectionsWithCount,
+    });
+  } catch (error) {
+    console.error('Error getting collections with defaults:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    });
+  }
+};
+
+export const removeRecipeFromCollection = async (req: Request, res: Response) => {
+  try {
+    const { recipeId } = removeRecipeFromCollectionInput.parse(req.body);
+    const collectionId = parseInt(req.params.collectionId);
+    const userId = req.params.userId;
+
+    if (isNaN(collectionId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid collection ID',
+      });
+    }
+
+    // Verificar que la colección pertenece al usuario
+    const collectionExists = await db.select()
+      .from(collections)
+      .where(and(
+        eq(collections.id, collectionId),
+        eq(collections.userId, userId),
+      ))
+      .limit(1);
+
+    if (collectionExists.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Collection not found or does not belong to this user',
+      });
+    }
+
+    // Verificar si la receta está en la colección
+    const recipeInCollection = await db.select()
+      .from(collectionRecipes)
+      .where(and(
+        eq(collectionRecipes.collectionId, collectionId),
+        eq(collectionRecipes.recipeId, recipeId),
+      ))
+      .limit(1);
+
+    if (recipeInCollection.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Recipe is not in this collection',
+      });
+    }
+
+    // Remover la receta de la colección
+    await db.delete(collectionRecipes)
+      .where(and(
+        eq(collectionRecipes.collectionId, collectionId),
+        eq(collectionRecipes.recipeId, recipeId),
+      ));
+
+    res.json({
+      success: true,
+      message: 'Recipe removed from collection successfully',
+    });
+  } catch (error) {
+    console.error('Error removing recipe from collection:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
     });
   }
 }; 

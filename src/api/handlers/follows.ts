@@ -11,8 +11,7 @@ export const followUser = async (req: Request, res: Response) => {
     const { followingId } = followUserInput.parse(req.body);
     const followerId = req.params.userId;
 
-    console.log('🔎 FollowerId recibido:', followerId);
-    console.log('🔎 FollowingId recibido:', followingId);
+
 
     // Verificar que el usuario no se siga a sí mismo
     if (followerId === followingId) {
@@ -30,18 +29,11 @@ export const followUser = async (req: Request, res: Response) => {
         .limit(1);
 
       if (existingUser.length === 0) {
-        console.log(`🔧 Creating user in DB for ${userId}`);
         try {
           // Intentar obtener datos del usuario desde Clerk
           const clerkUser = await clerkClient.users.getUser(userId);
-          console.log(`🔧 User data from Clerk for ${userId}:`, {
-            id: clerkUser.id,
-            username: clerkUser.username,
-            firstName: clerkUser.firstName,
-            lastName: clerkUser.lastName
-          });
         } catch (clerkError) {
-          console.log(`🔧 Could not get user from Clerk for ${userId}:`, clerkError);
+          console.error(`Could not get user from Clerk for ${userId}:`, clerkError);
         }
 
         // Crear usuario en la base de datos
@@ -51,7 +43,7 @@ export const followUser = async (req: Request, res: Response) => {
           idSocialMedia: null,
           createdBy: userId,
         });
-        console.log(`🔧 User created in DB for ${userId}`);
+
         return true;
       }
       return false;
@@ -63,16 +55,11 @@ export const followUser = async (req: Request, res: Response) => {
       ensureUserExists(followingId),
     ]);
 
-    console.log(`🔧 Follower created: ${followerCreated}, Following created: ${followingCreated}`);
-
     // Verificar que ambos usuarios existan después de la creación
     const [followerExists, followingExists] = await Promise.all([
       db.select().from(users).where(eq(users.externalId, followerId)).limit(1),
       db.select().from(users).where(eq(users.externalId, followingId)).limit(1),
     ]);
-
-    console.log('🔎 Resultado followerExists:', followerExists);
-    console.log('🔎 Resultado followingExists:', followingExists);
 
     if (followerExists.length === 0) {
       return res.status(404).json({
@@ -132,8 +119,7 @@ export const unfollowUser = async (req: Request, res: Response) => {
     const { followingId } = unfollowUserInput.parse(req.body);
     const followerId = req.params.userId;
 
-    console.log('🔎 Unfollow - FollowerId recibido:', followerId);
-    console.log('🔎 Unfollow - FollowingId recibido:', followingId);
+
 
     // Verificar que el usuario no se desiga a sí mismo
     if (followerId === followingId) {
@@ -151,7 +137,7 @@ export const unfollowUser = async (req: Request, res: Response) => {
         .limit(1);
 
       if (existingUser.length === 0) {
-        console.log(`🔧 Creating user in DB for unfollow operation: ${userId}`);
+
         await db.insert(users).values({
           externalId: userId,
           description: null,
@@ -423,4 +409,6 @@ export const getUserStats = async (req: Request, res: Response) => {
       error: 'Internal server error',
     });
   }
-}; 
+};
+
+ 

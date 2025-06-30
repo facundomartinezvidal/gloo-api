@@ -132,14 +132,38 @@ npm run typecheck      # Verificar tipos TypeScript
 
 ## 📚 Documentación de la API
 
-La documentación completa de la API está disponible a través de Swagger UI:
+### 🔗 Acceso a la Documentación Swagger
 
-- **Desarrollo**: `http://localhost:5000/api-docs`
-- **Producción**: `https://gloo-api-production.up.railway.app/api-docs`
+La documentación completa e interactiva de la API está disponible a través de **Swagger UI**, donde puedes explorar todos los endpoints, probar las peticiones directamente desde el navegador y ver ejemplos de respuestas.
 
-### URLs Base
-- **API Base (Desarrollo)**: `http://localhost:5000/api/v1`
-- **API Base (Producción)**: `https://gloo-api-production.up.railway.app/api/v1`
+#### URLs de Documentación
+- **🔧 Desarrollo**: [http://localhost:5000/api-docs](http://localhost:5000/api-docs)
+- **🌐 Producción**: [https://gloo-api-production.up.railway.app/api-docs](https://gloo-api-production.up.railway.app/api-docs)
+
+#### ⚡ Características de la Documentación
+- **Interfaz Interactiva**: Prueba los endpoints directamente desde Swagger UI
+- **Ejemplos de Respuesta**: Ve ejemplos reales de las respuestas de la API
+- **Esquemas de Datos**: Documentación completa de todos los modelos y tipos de datos
+- **Autenticación**: Información sobre cómo autenticar las peticiones
+- **Códigos de Estado**: Documentación de todos los códigos de respuesta HTTP
+
+#### 🔑 Cómo Usar la Documentación
+1. **Accede** a cualquiera de las URLs de documentación
+2. **Explora** los endpoints organizados por categorías (Usuarios, Recetas, etc.)
+3. **Haz clic** en "Try it out" para probar un endpoint
+4. **Introduce** los parámetros requeridos
+5. **Ejecuta** la petición y ve la respuesta en tiempo real
+
+#### 🛡️ Autenticación en Swagger
+Para endpoints que requieren autenticación:
+1. Obtén tu token de Clerk
+2. Haz clic en el botón "Authorize" en Swagger UI
+3. Introduce el token en el formato: `Bearer tu_token_aqui`
+4. Ahora puedes probar endpoints protegidos
+
+### URLs Base de la API
+- **🔧 API Base (Desarrollo)**: `http://localhost:5000/api/v1`
+- **🌐 API Base (Producción)**: `https://gloo-api-production.up.railway.app/api/v1`
 
 ### Endpoints Principales
 

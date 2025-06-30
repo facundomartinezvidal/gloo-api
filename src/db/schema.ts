@@ -148,6 +148,15 @@ export const collectionRecipes = pgTable('collection_recipes', {
   addedAt: timestamp('added_at', { withTimezone: true }).defaultNow(),
 });
 
+// Tabla de favoritos
+export const favorites = pgTable('favorites', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  recipeId: integer('recipe_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   recipes: many(recipe),
   rates: many(rate),
@@ -159,6 +168,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   receivedNotifications: many(notification, { relationName: 'recipient' }),
   searchHistory: many(searchHistory),
   collections: many(collections),
+  favorites: many(favorites),
 }));
 
 export const recipeRelations = relations(recipe, ({ one, many }) => ({
@@ -173,6 +183,7 @@ export const recipeRelations = relations(recipe, ({ one, many }) => ({
   comments: many(recipeComment),
   categories: many(recipeCategories),
   collectionRecipes: many(collectionRecipes),
+  favorites: many(favorites),
 }));
 
 export const ingredientsRelations = relations(ingredient, ({ one }) => ({
@@ -287,6 +298,18 @@ export const collectionRecipesRelations = relations(collectionRecipes, ({ one })
   }),
   recipe: one(recipe, {
     fields: [collectionRecipes.recipeId],
+    references: [recipe.id],
+  }),
+}));
+
+// Relaciones para favoritos
+export const favoritesRelations = relations(favorites, ({ one }) => ({
+  user: one(users, {
+    fields: [favorites.userId],
+    references: [users.externalId],
+  }),
+  recipe: one(recipe, {
+    fields: [favorites.recipeId],
     references: [recipe.id],
   }),
 }));

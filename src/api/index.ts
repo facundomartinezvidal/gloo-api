@@ -1,6 +1,5 @@
 import express from 'express';
 
-import emojis from './routes/emojis';
 import recipes from './routes/recipes';
 import search from './routes/search';
 import ingredients from './routes/ingredients';
@@ -10,6 +9,7 @@ import likes from './routes/likes';
 import comments from './routes/comments';
 import notifications from './routes/notifications';
 import collections from './routes/collections';
+import favorites from './routes/favorites';
 import users from './routes/users';
 
 const router = express.Router();
@@ -20,7 +20,6 @@ router.get('/', (req, res) => {
   });
 });
 
-router.use('/emojis', emojis);
 router.use('/recipes', recipes);
 router.use('/search', search);
 router.use('/ingredients', ingredients);
@@ -30,6 +29,7 @@ router.use('/likes', likes);
 router.use('/comments', comments);
 router.use('/notifications', notifications);
 router.use('/collections', collections);
+router.use('/favorites', favorites);
 router.use('/users', users);
 
 export default router;

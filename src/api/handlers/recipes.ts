@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
-import { ingredient, instruction, rate, recipe, recipeLike, recipeComment } from '../../db/schema';
+import { ingredient, instruction, rate, recipe, recipeLike, recipeComment, users } from '../../db/schema';
 import { count, eq, asc, avg } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
@@ -48,7 +48,7 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
         db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
         db.select().from(ingredient).where(eq(ingredient.recipeId, r.id)),
         db.select().from(instruction).where(eq(instruction.recipeId, r.id)),
-        db.select({ avg: avg(rate.rate) }).from(rate).where(eq(rate.recipeId, r.id))
+        db.select({ avg: avg(rate.rate) }).from(rate).where(eq(rate.recipeId, r.id)),
       ]);
       
       const user = await clerkClient.users.getUser(r.userId as string);
@@ -87,6 +87,33 @@ export const createRecipe = async (req: Request, res: Response) => {
     const userId = req.params.userId;
     
     console.log('🔧 Creating recipe with data:', { title, description, estimatedTime, ingredientsCount: ingredients?.length, instructionsCount: instructions?.length });
+    
+    // Verificar si el usuario existe en la tabla local, si no, crearlo
+    const existingUser = await db.select().from(users).where(eq(users.externalId, userId));
+    
+    if (existingUser.length === 0) {
+      console.log('🔧 User not found in local database, creating user:', userId);
+      
+      try {
+        // Verificar que el usuario existe en Clerk
+        await clerkClient.users.getUser(userId);
+        
+        // Crear el usuario en la tabla local
+        await db.insert(users).values({
+          externalId: userId,
+          description: null,
+          idSocialMedia: null,
+        });
+        
+        console.log('🔧 User created successfully in local database');
+      } catch (clerkError) {
+        console.error('Error fetching user from Clerk:', clerkError);
+        return res.status(400).json({
+          success: false,
+          error: 'Usuario no válido',
+        });
+      }
+    }
     
     let mediaUrl: string | null = null;
     let mediaType: 'image' | 'video' | null = null;

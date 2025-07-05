@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
-import { ingredient, instruction, rate, recipe, recipeLike, recipeComment } from '../../db/schema';
-import { count, eq, avg } from 'drizzle-orm';
+import { ingredient, instruction, rate, recipe, recipeLike, recipeComment, follow } from '../../db/schema';
+import { count, eq, avg, inArray } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
 import { supabase } from '../lib/supabase';
@@ -9,10 +9,15 @@ import { supabase } from '../lib/supabase';
 export const getAllRecipes = async (req: Request, res: Response) => {
   const recipes = await db.select().from(recipe);
   const data = await Promise.all(recipes.map(async (r) => {
-    const rates = await db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id));
-    const comments = await db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id));
-    const ingredients = await db.select().from(ingredient).where(eq(ingredient.recipeId, r.id));
-    const instructions = await db.select().from(instruction).where(eq(instruction.recipeId, r.id));
+    const [rates, comments, likes, ingredients, instructions, averageRating] = await Promise.all([
+      db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id)),
+      db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
+      db.select({ count: count() }).from(recipeLike).where(eq(recipeLike.recipeId, r.id)),
+      db.select().from(ingredient).where(eq(ingredient.recipeId, r.id)),
+      db.select().from(instruction).where(eq(instruction.recipeId, r.id)),
+      db.select({ avg: avg(rate.rate) }).from(rate).where(eq(rate.recipeId, r.id))
+    ]);
+    
     const user = await clerkClient.users.getUser(r.userId as string);
     return {
       ...r,
@@ -24,6 +29,14 @@ export const getAllRecipes = async (req: Request, res: Response) => {
       },
       rates: rates[0].count,
       comments: comments[0].count,
+      likes: likes[0].count,
+      averageRating: averageRating[0].avg ? parseFloat(averageRating[0].avg.toString()) : 0,
+      stats: {
+        rates: rates[0].count,
+        comments: comments[0].count,
+        likes: likes[0].count,
+        averageRating: averageRating[0].avg ? parseFloat(averageRating[0].avg.toString()) : 0,
+      },
       ingredients: ingredients,
       instructions: instructions,
     };
@@ -83,7 +96,7 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
 
 export const createRecipe = async (req: Request, res: Response) => {
   try {
-    const { title, description, estimatedTime, media } = createRecipeInput.parse(req.body);
+    const { title, description, estimatedTime, servings, media, ingredients, instructions } = createRecipeInput.parse(req.body);
     const userId = req.params.userId;
     
     let mediaUrl: string | null = null;
@@ -149,14 +162,89 @@ export const createRecipe = async (req: Request, res: Response) => {
       }
     }
 
+    // Create the recipe first
     const newRecipe = await db.insert(recipe).values({
       title,
       description,
       estimatedTime,
+      servings,
       userId,
       image: mediaUrl,
       mediaType: mediaType,
     }).returning();
+
+    const recipeId = newRecipe[0].id;
+
+    // Process ingredients if provided
+    if (ingredients && ingredients.length > 0) {
+      const ingredientsWithRecipeId = ingredients.map(ing => ({
+        ...ing,
+        recipeId,
+      }));
+      
+      await db.insert(ingredient).values(ingredientsWithRecipeId);
+    }
+
+    // Process instructions if provided
+    if (instructions && instructions.length > 0) {
+      const processedInstructions = await Promise.all(
+        instructions.map(async (inst, index) => {
+          let imageUrl: string | null = null;
+
+          // Only process image if provided
+          if (inst.image) {
+            imageUrl = inst.image; // Default to use provided URL
+
+            // If image comes as base64, upload to Supabase Storage
+            if (inst.image.startsWith('data:')) {
+              // Extract file type and base64 data
+              const [header, base64Data] = inst.image.split(',');
+              const mimeMatch = header.match(/data:([^;]+)/);
+              const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+              
+              // Validate that it's an image (only images for instructions)
+              if (!mimeType.startsWith('image/')) {
+                throw new Error('Only image files are allowed for instructions');
+              }
+              
+              // Convert base64 to buffer
+              const buffer = Buffer.from(base64Data, 'base64');
+              
+              // Generate unique filename
+              const extension = mimeType.split('/')[1];
+              const fileName = `instructions/${recipeId}/${Date.now()}-step-${index + 1}.${extension}`;
+              
+              // Upload file to Supabase Storage
+              const { error: uploadError } = await supabase.storage
+                .from('recipe.content')
+                .upload(fileName, buffer, {
+                  contentType: mimeType,
+                });
+
+              if (uploadError) {
+                throw new Error('Error uploading image: ' + uploadError.message);
+              }
+
+              // Get public URL of the file
+              const { data: urlData } = supabase.storage
+                .from('recipe.content')
+                .getPublicUrl(fileName);
+
+              imageUrl = urlData.publicUrl;
+            }
+          }
+
+          return {
+            recipeId,
+            step: index + 1,
+            description: inst.description,
+            image: imageUrl,
+          };
+        }),
+      );
+
+      await db.insert(instruction).values(processedInstructions);
+    }
 
     res.json({
       success: true,
@@ -383,6 +471,97 @@ export const getTrendingRecipes = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error getting trending recipes:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+    });
+  }
+};
+
+export const getRecipesFromFollowing = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    
+    // Obtener los usuarios que el usuario actual sigue
+    const followingUsers = await db
+      .select({ followingId: follow.followingId })
+      .from(follow)
+      .where(eq(follow.followerId, userId));
+    
+    if (followingUsers.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        message: 'No sigues a ningún usuario aún',
+      });
+    }
+    
+    // Extraer los IDs de los usuarios seguidos
+    const followingIds = followingUsers.map(f => f.followingId);
+    
+    // Obtener todas las recetas de los usuarios seguidos
+    const recipes = await db
+      .select()
+      .from(recipe)
+      .where(inArray(recipe.userId, followingIds));
+    
+    // Mapear cada receta con sus datos completos
+    const data = await Promise.all(recipes.map(async (r) => {
+      const [rates, comments, likes, ingredients, instructions, averageRating] = await Promise.all([
+        db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id)),
+        db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
+        db.select({ count: count() }).from(recipeLike).where(eq(recipeLike.recipeId, r.id)),
+        db.select().from(ingredient).where(eq(ingredient.recipeId, r.id)),
+        db.select().from(instruction).where(eq(instruction.recipeId, r.id)),
+        db.select({ avg: avg(rate.rate) }).from(rate).where(eq(rate.recipeId, r.id))
+      ]);
+      
+      let user;
+      try {
+        user = await clerkClient.users.getUser(r.userId as string);
+      } catch (error) {
+        user = {
+          id: r.userId,
+          username: 'Usuario',
+          email: '',
+          imageUrl: null,
+        };
+      }
+      
+      return {
+        ...r,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.emailAddresses?.[0]?.emailAddress || '', 
+          imageUrl: user.imageUrl,
+        },
+        rates: rates[0].count,
+        comments: comments[0].count,
+        likes: likes[0].count,
+        averageRating: averageRating[0].avg ? parseFloat(averageRating[0].avg.toString()) : 0,
+        stats: {
+          rates: rates[0].count,
+          comments: comments[0].count,
+          likes: likes[0].count,
+          averageRating: averageRating[0].avg ? parseFloat(averageRating[0].avg.toString()) : 0,
+        },
+        ingredients: ingredients,
+        instructions: instructions,
+      };
+    }));
+    
+    // Ordenar por fecha de creación (más recientes primero)
+    const sortedData = data.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    
+    res.json({
+      success: true,
+      data: sortedData,
+    });
+  } catch (error) {
+    console.error('Error getting recipes from following:', error);
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',

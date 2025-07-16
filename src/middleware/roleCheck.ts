@@ -65,7 +65,7 @@ export const checkUserRole = async (req: AuthenticatedRequest, res: Response, ne
 
 // Middleware para requerir rol de admin
 export const requireAdmin = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  if (req.userRole !== 'admin') {
+  if (req.userRole !== 'org:admin') {
     return res.status(403).json({
       success: false,
       error: 'Admin access required',
@@ -94,7 +94,7 @@ export const getOrganizationAdmins = async (organizationId: string): Promise<str
     });
 
     const adminIds = memberships.data
-      .filter(membership => membership.role === 'admin')
+      .filter(membership => membership.role === 'org:admin')
       .map(membership => membership.publicUserData?.userId)
       .filter(Boolean) as string[];
 

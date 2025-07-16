@@ -618,3 +618,4 @@ export const getTrendingRecipes = async (req: Request, res: Response) => {
     });
   }
 };
+

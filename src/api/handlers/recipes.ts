@@ -7,13 +7,19 @@ import createRecipeInput from '../inputs/recipes';
 import { supabase } from '../lib/supabase';
 import { getOrganizationAdmins } from '../../middleware/roleCheck';
 
-// Función auxiliar para notificar a los admins sobre nueva receta pendiente
-const notifyAdminsForRecipeApproval = async (recipeId: number, recipeTitle: string, authorId: string) => {
+// Función auxiliar para obtener el nombre del usuario
+const getUserName = async (userId: string): Promise<string> => {
   try {
-    // Obtener información del usuario que creó la receta
-    const author = await clerkClient.users.getUser(authorId);
-    const authorName = author.username || author.firstName || 'Usuario';
+    const user = await clerkClient.users.getUser(userId);
+    return user.username || user.firstName || 'Usuario';
+  } catch (error) {
+    return 'Usuario';
+  }
+};
 
+// Función auxiliar para notificar a los admins sobre acciones en recetas
+const notifyAdminsForRecipeAction = async (recipeId: number, recipeTitle: string, authorId: string, action: 'created' | 'updated' | 'deleted', adminMessage: string) => {
+  try {
     // Obtener membresías de organización del autor para determinar qué admins notificar
     const organizationMemberships = await clerkClient.users.getOrganizationMembershipList({ userId: authorId });
     
@@ -24,13 +30,17 @@ const notifyAdminsForRecipeApproval = async (recipeId: number, recipeTitle: stri
       // Obtener todos los admins de la organización
       const adminIds = await getOrganizationAdmins(organizationId);
       
+      // Filtrar para no notificar al mismo usuario si es admin
+      const filteredAdminIds = adminIds.filter(adminId => adminId !== authorId);
+      
       // Crear notificaciones para cada admin
-      const notifications = adminIds.map(adminId => ({
+      const notifications = filteredAdminIds.map(adminId => ({
         recipientId: adminId,
         senderId: authorId,
-        type: 'recipe_approval' as const,
-        title: 'Nueva receta para revisar',
-        message: `${authorName} ha publicado una nueva receta "${recipeTitle}" que necesita aprobación`,
+        type: action === 'created' ? 'recipe_approval' : 'recipe_updated' as const,
+        title: action === 'created' ? 'Nueva receta para revisar' : 
+          action === 'updated' ? 'Receta modificada' : 'Receta eliminada',
+        message: adminMessage,
         relatedId: recipeId,
         relatedType: 'recipe',
       }));
@@ -40,8 +50,20 @@ const notifyAdminsForRecipeApproval = async (recipeId: number, recipeTitle: stri
       }
     }
   } catch (error) {
-    console.error('Error notifying admins for recipe approval:', error);
+    console.error(`Error notifying admins for recipe ${action}:`, error);
   }
+};
+
+// Función auxiliar para notificar a los admins sobre nueva receta pendiente
+const notifyAdminsForRecipeApproval = async (recipeId: number, recipeTitle: string, authorId: string) => {
+  const authorName = await getUserName(authorId);
+  await notifyAdminsForRecipeAction(
+    recipeId, 
+    recipeTitle, 
+    authorId, 
+    'created', 
+    `${authorName} ha publicado una nueva receta "${recipeTitle}" que necesita aprobación`,
+  );
 };
 
 export const getAllRecipes = async (req: Request, res: Response) => {
@@ -451,6 +473,18 @@ export const updateRecipe = async (req: Request, res: Response) => {
       .where(eq(recipe.id, recipeId))
       .returning();
 
+    // Notificar a los admins sobre la edición de la receta
+    if (existingRecipe[0].userId) {
+      const authorName = await getUserName(existingRecipe[0].userId as string);
+      await notifyAdminsForRecipeAction(
+        recipeId,
+        title || 'Sin título',
+        existingRecipe[0].userId as string,
+        'updated',
+        `${authorName} ha modificado la receta "${title || 'Sin título'}"`,
+      );
+    }
+
     res.json({
       success: true,
       data: updatedRecipe[0],
@@ -484,6 +518,20 @@ export const deleteRecipe = async (req: Request, res: Response) => {
         success: false,
         error: 'Receta no encontrada',
       });
+    }
+
+    const recipeData = existingRecipe[0];
+
+    // Notificar a los admins sobre la eliminación de la receta
+    if (recipeData.userId) {
+      const authorName = await getUserName(recipeData.userId as string);
+      await notifyAdminsForRecipeAction(
+        recipeId,
+        recipeData.title || 'Sin título',
+        recipeData.userId as string,
+        'deleted',
+        `${authorName} ha eliminado la receta "${recipeData.title || 'Sin título'}"`,
+      );
     }
 
     // Eliminar ingredientes asociados

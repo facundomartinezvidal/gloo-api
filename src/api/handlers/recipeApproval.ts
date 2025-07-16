@@ -204,7 +204,7 @@ export const rejectRecipe = async (req: AuthenticatedRequest, res: Response) => 
         senderId: adminId,
         type: 'recipe_rejected',
         title: 'Receta rechazada',
-        message: `Tu receta "${recipeData.title}" ha sido rechazada por ${adminName}: ${comment}`,
+        message: `Tu receta "${recipeData.title}" ha sido rechazada por ${adminName}${comment ? `: ${comment}` : ''}`,
         relatedId: recipeId,
         relatedType: 'recipe',
       });

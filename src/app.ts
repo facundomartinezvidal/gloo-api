@@ -28,6 +28,22 @@ app.use(cors({
 
 app.use(express.json());
 
+// Middleware de debug para capturar todas las peticiones
+app.use((req, res, next) => {
+  console.log('🔍 Global Debug - URL:', req.originalUrl);
+  console.log('🔍 Global Debug - Method:', req.method);
+  console.log('🔍 Global Debug - Headers:', {
+    authorization: req.headers.authorization ? 'Present' : 'Missing',
+    'content-type': req.headers['content-type'],
+    'user-agent': req.headers['user-agent']?.substring(0, 50) + '...',
+  });
+  console.log('🔍 Global Debug - Params:', req.params);
+  console.log('🔍 Global Debug - Query:', req.query);
+  console.log('🔍 Global Debug - Body keys:', Object.keys(req.body || {}));
+  console.log('---');
+  next();
+});
+
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     res.header('Access-Control-Allow-Origin', '*');

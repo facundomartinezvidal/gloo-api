@@ -17,25 +17,38 @@ export const checkUserRole = async (req: AuthenticatedRequest, res: Response, ne
     // Usar el userId del token JWT (ya verificado por requireAuth)
     const userId = req.auth?.userId || req.userId;
     
+    console.log('🔍 Role Check Debug - URL:', req.originalUrl);
+    console.log('🔍 Role Check Debug - User ID:', userId);
+    
     if (!userId) {
+      console.log('❌ Role Check Debug - No user ID found');
       return res.status(401).json({
         success: false,
         error: 'User ID not found in token',
       });
     }
 
+    console.log('🔍 Role Check Debug - Fetching user from Clerk...');
+    
     // Obtener información del usuario desde Clerk
     const user = await clerkClient.users.getUser(userId);
     
+    console.log('🔍 Role Check Debug - Clerk user found:', !!user);
+    
     if (!user) {
+      console.log('❌ Role Check Debug - User not found in Clerk');
       return res.status(404).json({
         success: false,
         error: 'User not found',
       });
     }
 
+    console.log('🔍 Role Check Debug - Fetching organization memberships...');
+
     // Obtener membresías de organización del usuario
     const organizationMemberships = await clerkClient.users.getOrganizationMembershipList({ userId });
+    
+    console.log('🔍 Role Check Debug - Organization memberships count:', organizationMemberships.data.length);
     
     // Por defecto, el usuario es 'guest'
     let userRole = 'guest';
@@ -46,6 +59,11 @@ export const checkUserRole = async (req: AuthenticatedRequest, res: Response, ne
       const membership = organizationMemberships.data[0];
       userRole = membership.role; // 'admin', 'basic_member', etc.
       organizationId = membership.organization.id;
+      
+      console.log('🔍 Role Check Debug - User role:', userRole);
+      console.log('🔍 Role Check Debug - Organization ID:', organizationId);
+    } else {
+      console.log('🔍 Role Check Debug - No organization memberships, defaulting to guest');
     }
 
     // Agregar información al request
@@ -53,9 +71,10 @@ export const checkUserRole = async (req: AuthenticatedRequest, res: Response, ne
     req.userRole = userRole;
     req.organizationId = organizationId;
 
+    console.log('✅ Role Check Debug - Role check completed successfully');
     next();
   } catch (error) {
-    console.error('Error checking user role:', error);
+    console.error('❌ Role Check Debug - Error checking user role:', error);
     return res.status(500).json({
       success: false,
       error: 'Error verifying user role',

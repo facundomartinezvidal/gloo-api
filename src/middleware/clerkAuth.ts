@@ -18,7 +18,13 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
     const authHeader = req.headers.authorization;
     const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
 
+    console.log('🔍 Auth Debug - URL:', req.originalUrl);
+    console.log('🔍 Auth Debug - Method:', req.method);
+    console.log('🔍 Auth Debug - Auth Header Present:', !!authHeader);
+    console.log('🔍 Auth Debug - Bearer Token Length:', bearerToken?.length || 0);
+
     if (!bearerToken) {
+      console.log('❌ Auth Debug - No bearer token found');
       return res.status(401).json({
         success: false,
         error: 'Authorization token required',
@@ -30,7 +36,15 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
       secretKey: process.env.CLERK_SECRET_KEY!,
     });
 
+    console.log('🔍 Auth Debug - Token Payload:', {
+      sub: tokenPayload?.sub,
+      sid: tokenPayload?.sid,
+      iss: tokenPayload?.iss,
+      exp: tokenPayload?.exp,
+    });
+
     if (!tokenPayload) {
+      console.log('❌ Auth Debug - Invalid token payload');
       return res.status(401).json({
         success: false,
         error: 'Invalid or expired token',
@@ -44,9 +58,10 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
     };
     req.userId = tokenPayload.sub;
 
+    console.log('✅ Auth Debug - User authenticated:', tokenPayload.sub);
     next();
   } catch (error) {
-    console.error('Error in auth middleware:', error);
+    console.error('❌ Auth Debug - Error in auth middleware:', error);
     return res.status(401).json({
       success: false,
       error: 'Authentication failed',
@@ -106,7 +121,13 @@ export const requireOwnership = (req: AuthenticatedRequest, res: Response, next:
     const tokenUserId = req.auth?.userId;
     const paramUserId = req.params.userId;
 
+    console.log('🔍 Ownership Debug - URL:', req.originalUrl);
+    console.log('🔍 Ownership Debug - Token User ID:', tokenUserId);
+    console.log('🔍 Ownership Debug - Param User ID:', paramUserId);
+    console.log('🔍 Ownership Debug - Match:', tokenUserId === paramUserId);
+
     if (!tokenUserId) {
+      console.log('❌ Ownership Debug - No token user ID');
       return res.status(401).json({
         success: false,
         error: 'Authentication required',
@@ -114,6 +135,7 @@ export const requireOwnership = (req: AuthenticatedRequest, res: Response, next:
     }
 
     if (!paramUserId) {
+      console.log('❌ Ownership Debug - No param user ID');
       return res.status(400).json({
         success: false,
         error: 'User ID parameter required',
@@ -122,15 +144,17 @@ export const requireOwnership = (req: AuthenticatedRequest, res: Response, next:
 
     // Verificar que el usuario del token coincida con el parámetro de la ruta
     if (tokenUserId !== paramUserId) {
+      console.log('❌ Ownership Debug - User ID mismatch');
       return res.status(403).json({
         success: false,
         error: 'Access denied - You can only access your own resources',
       });
     }
 
+    console.log('✅ Ownership Debug - Access granted');
     next();
   } catch (error) {
-    console.error('Error in ownership middleware:', error);
+    console.error('❌ Ownership Debug - Error in ownership middleware:', error);
     return res.status(500).json({
       success: false,
       error: 'Authorization error',

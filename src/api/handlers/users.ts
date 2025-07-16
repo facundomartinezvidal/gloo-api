@@ -3,7 +3,7 @@ import { db } from '../../db';
 import { users } from '../../db/schema';
 import { eq, count, avg } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
-import { updateUserInput, getUserInput } from '../inputs/users';
+import { updateUserInput } from '../inputs/users';
 import { recipe, follow, recipeLike, recipeComment, rate } from '../../db/schema';
 
 export const getUser = async (req: Request, res: Response) => {

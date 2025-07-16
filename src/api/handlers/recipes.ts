@@ -37,9 +37,10 @@ const notifyAdminsForRecipeAction = async (recipeId: number, recipeTitle: string
       const notifications = filteredAdminIds.map(adminId => ({
         recipientId: adminId,
         senderId: authorId,
-        type: action === 'created' ? 'recipe_approval' : 'recipe_updated' as const,
+        type: action === 'created' ? 'recipe_approval' : 
+          action === 'updated' ? 'recipe_update_pending' : 'recipe_delete_pending' as const,
         title: action === 'created' ? 'Nueva receta para revisar' : 
-          action === 'updated' ? 'Receta modificada' : 'Receta eliminada',
+          action === 'updated' ? 'Receta modificada - Requiere re-aprobación' : 'Solicitud de eliminación de receta',
         message: adminMessage,
         relatedId: recipeId,
         relatedType: 'recipe',
@@ -459,7 +460,7 @@ export const updateRecipe = async (req: Request, res: Response) => {
       }
     }
 
-    // Actualizar la receta
+    // Actualizar la receta y cambiar status a pending para re-aprobación
     const updatedRecipe = await db
       .update(recipe)
       .set({
@@ -468,12 +469,16 @@ export const updateRecipe = async (req: Request, res: Response) => {
         estimatedTime,
         image: mediaUrl,
         mediaType: mediaType,
+        status: 'pending', // Cambiar a pending para re-aprobación
+        reviewedBy: null, // Limpiar campos de revisión anterior
+        reviewedAt: null,
+        reviewComment: null,
         updatedAt: new Date(),
       })
       .where(eq(recipe.id, recipeId))
       .returning();
 
-    // Notificar a los admins sobre la edición de la receta
+    // Notificar a los admins sobre la edición de la receta que necesita re-aprobación
     if (existingRecipe[0].userId) {
       const authorName = await getUserName(existingRecipe[0].userId as string);
       await notifyAdminsForRecipeAction(
@@ -481,7 +486,7 @@ export const updateRecipe = async (req: Request, res: Response) => {
         title || 'Sin título',
         existingRecipe[0].userId as string,
         'updated',
-        `${authorName} ha modificado la receta "${title || 'Sin título'}"`,
+        `${authorName} ha modificado la receta "${title || 'Sin título'}" y necesita re-aprobación`,
       );
     }
 
@@ -522,7 +527,23 @@ export const deleteRecipe = async (req: Request, res: Response) => {
 
     const recipeData = existingRecipe[0];
 
-    // Notificar a los admins sobre la eliminación de la receta
+    // Verificar si la receta ya está marcada para eliminación
+    if (recipeData.status === 'delete_pending') {
+      return res.status(400).json({
+        success: false,
+        error: 'La receta ya está pendiente de eliminación',
+      });
+    }
+
+    // Marcar la receta como pendiente de eliminación
+    await db.update(recipe)
+      .set({
+        status: 'delete_pending',
+        updatedAt: new Date(),
+      })
+      .where(eq(recipe.id, recipeId));
+
+    // Notificar a los admins sobre la solicitud de eliminación
     if (recipeData.userId) {
       const authorName = await getUserName(recipeData.userId as string);
       await notifyAdminsForRecipeAction(
@@ -530,28 +551,16 @@ export const deleteRecipe = async (req: Request, res: Response) => {
         recipeData.title || 'Sin título',
         recipeData.userId as string,
         'deleted',
-        `${authorName} ha eliminado la receta "${recipeData.title || 'Sin título'}"`,
+        `${authorName} ha solicitado eliminar la receta "${recipeData.title || 'Sin título'}"`,
       );
     }
 
-    // Eliminar ingredientes asociados
-    await db.delete(ingredient).where(eq(ingredient.recipeId, recipeId));
-    
-    // Eliminar instrucciones asociadas
-    await db.delete(instruction).where(eq(instruction.recipeId, recipeId));
-    
-    // Eliminar calificaciones asociadas
-    await db.delete(rate).where(eq(rate.recipeId, recipeId));
-    
-    // Eliminar la receta
-    await db.delete(recipe).where(eq(recipe.id, recipeId));
-
     res.json({
       success: true,
-      message: 'Receta eliminada exitosamente',
+      message: 'Solicitud de eliminación enviada. Pendiente de aprobación de admin.',
     });
   } catch (error) {
-    console.error('Error deleting recipe:', error);
+    console.error('Error requesting recipe deletion:', error);
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',

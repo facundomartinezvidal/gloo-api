@@ -6,6 +6,8 @@ import {
   getApprovalStats,
   getRecipesReviewedByAdmin,
   getAdminPersonalStats,
+  approveRecipeDeletion,
+  rejectRecipeDeletion,
 } from '../handlers/recipeApproval';
 import { checkUserRole, requireAdmin } from '../../middleware/roleCheck';
 import { requireAuth } from '../../middleware/clerkAuth';
@@ -32,5 +34,11 @@ router.get('/:userId/my-reviews', requireAdmin, getRecipesReviewedByAdmin);
 
 // GET /:userId/my-stats - Obtener estadísticas personales del admin
 router.get('/:userId/my-stats', requireAdmin, getAdminPersonalStats);
+
+// POST /:userId/approve-deletion/:recipeId - Aprobar eliminación de receta
+router.post('/:userId/approve-deletion/:recipeId', requireAdmin, approveRecipeDeletion);
+
+// POST /:userId/reject-deletion/:recipeId - Rechazar eliminación de receta
+router.post('/:userId/reject-deletion/:recipeId', requireAdmin, rejectRecipeDeletion);
 
 export default router; 

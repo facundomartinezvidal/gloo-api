@@ -17,19 +17,17 @@ const app = express();
 app.use(morgan('dev'));
 app.use(helmet());
 
-// Configuración CORS más específica para evitar redirecciones en preflight
 app.use(cors({
-  origin: true, // Permitir todos los orígenes en desarrollo
-  credentials: true, // Permitir credenciales
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Métodos permitidos
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'], // Headers permitidos
-  preflightContinue: false, // No continuar con preflight
-  optionsSuccessStatus: 204 // Status para OPTIONS exitoso
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
 }));
 
 app.use(express.json());
 
-// Middleware para manejar peticiones OPTIONS específicamente
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     res.header('Access-Control-Allow-Origin', '*');
@@ -51,7 +49,6 @@ app.get('/', async (req, res) => {
 
 app.use('/api/v1', api);
 
-// Configuración de Swagger UI
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: 'Gloo API Documentation',
@@ -61,12 +58,10 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   },
 }));
 
-// Endpoint de prueba simple
 app.get('/test', (req, res) => {
   res.json({ message: 'Test endpoint funcionando' });
 });
 
-// Endpoint para obtener el JSON de Swagger
 app.get('/api-docs.json', (req, res) => {
   try {
     res.setHeader('Content-Type', 'application/json');

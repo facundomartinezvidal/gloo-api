@@ -1,13 +1,52 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
-import { ingredient, instruction, rate, recipe, recipeLike, recipeComment, users } from '../../db/schema';
-import { count, eq, asc, avg } from 'drizzle-orm';
+import { ingredient, instruction, rate, recipe, recipeLike, recipeComment, users, notification } from '../../db/schema';
+import { count, eq, asc, avg, and } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
 import { supabase } from '../lib/supabase';
+import { getOrganizationAdmins } from '../../middleware/roleCheck';
+
+// Función auxiliar para notificar a los admins sobre nueva receta pendiente
+const notifyAdminsForRecipeApproval = async (recipeId: number, recipeTitle: string, authorId: string) => {
+  try {
+    // Obtener información del usuario que creó la receta
+    const author = await clerkClient.users.getUser(authorId);
+    const authorName = author.username || author.firstName || 'Usuario';
+
+    // Obtener membresías de organización del autor para determinar qué admins notificar
+    const organizationMemberships = await clerkClient.users.getOrganizationMembershipList({ userId: authorId });
+    
+    if (organizationMemberships.data.length > 0) {
+      // Tomar la primera organización del usuario
+      const organizationId = organizationMemberships.data[0].organization.id;
+      
+      // Obtener todos los admins de la organización
+      const adminIds = await getOrganizationAdmins(organizationId);
+      
+      // Crear notificaciones para cada admin
+      const notifications = adminIds.map(adminId => ({
+        recipientId: adminId,
+        senderId: authorId,
+        type: 'recipe_approval' as const,
+        title: 'Nueva receta para revisar',
+        message: `${authorName} ha publicado una nueva receta "${recipeTitle}" que necesita aprobación`,
+        relatedId: recipeId,
+        relatedType: 'recipe',
+      }));
+
+      if (notifications.length > 0) {
+        await db.insert(notification).values(notifications);
+      }
+    }
+  } catch (error) {
+    console.error('Error notifying admins for recipe approval:', error);
+  }
+};
 
 export const getAllRecipes = async (req: Request, res: Response) => {
-  const recipes = await db.select().from(recipe);
+  // Solo mostrar recetas aprobadas por defecto
+  const recipes = await db.select().from(recipe).where(eq(recipe.status, 'approved'));
   const data = await Promise.all(recipes.map(async (r) => {
     const rates = await db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id));
     const comments = await db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id));
@@ -37,9 +76,18 @@ export const getAllRecipes = async (req: Request, res: Response) => {
 export const getRecipesByUser = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
+    const { includeStatus } = req.query;
     
-    // Obtener todas las recetas del usuario específico
-    const recipes = await db.select().from(recipe).where(eq(recipe.userId, userId));
+    // Por defecto solo mostrar recetas aprobadas, a menos que se especifique incluir otros estados
+    let whereCondition = and(eq(recipe.userId, userId), eq(recipe.status, 'approved'));
+    
+    // Si el usuario solicita ver todas sus recetas (incluyendo pendientes y rechazadas)
+    if (includeStatus === 'all') {
+      whereCondition = eq(recipe.userId, userId);
+    }
+    
+    // Obtener recetas del usuario específico
+    const recipes = await db.select().from(recipe).where(whereCondition);
     
     // Mapear cada receta con sus datos completos
     const data = await Promise.all(recipes.map(async (r) => {
@@ -287,6 +335,9 @@ export const createRecipe = async (req: Request, res: Response) => {
       ingredients: recipeIngredients,
       instructions: recipeInstructions,
     };
+
+    // Notificar a los admins sobre la nueva receta pendiente de aprobación
+    await notifyAdminsForRecipeApproval(newRecipe[0].id, title, userId);
 
     res.json({
       success: true,

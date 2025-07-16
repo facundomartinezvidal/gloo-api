@@ -7,14 +7,15 @@ import {
   getFollowStatus, 
   getUserStats,
 } from '../handlers/follows';
+import { requireAuthAndOwnership } from '../../middleware/clerkAuth';
 
 const router = express.Router();
 
 // POST /:userId/follow - Seguir a un usuario
-router.post('/:userId/follow', followUser);
+router.post('/:userId/follow', requireAuthAndOwnership, followUser);
 
 // DELETE /:userId/unfollow - Dejar de seguir a un usuario
-router.delete('/:userId/unfollow', unfollowUser);
+router.delete('/:userId/unfollow', requireAuthAndOwnership, unfollowUser);
 
 // GET /:userId/followers - Obtener seguidores de un usuario
 router.get('/:userId/followers', getFollowers);

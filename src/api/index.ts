@@ -11,6 +11,7 @@ import notifications from './routes/notifications';
 import collections from './routes/collections';
 import favorites from './routes/favorites';
 import users from './routes/users';
+import recipeApproval from './routes/recipeApproval';
 
 const router = express.Router();
 
@@ -31,5 +32,6 @@ router.use('/notifications', notifications);
 router.use('/collections', collections);
 router.use('/favorites', favorites);
 router.use('/users', users);
+router.use('/admin', recipeApproval);
 
 export default router;

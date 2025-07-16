@@ -35,6 +35,9 @@ export const searchRecipes = async (req: Request, res: Response) => {
     // Construir condiciones base
     const conditions = [];
 
+    // Solo mostrar recetas aprobadas
+    conditions.push(eq(recipe.status, 'approved'));
+
     // Búsqueda por texto en título y descripción
     if (query) {
       const textSearchCondition = or(

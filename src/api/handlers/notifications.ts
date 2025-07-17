@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
 import { notification, users } from '../../db/schema';
-import { eq, and, desc, count, sql } from 'drizzle-orm';
+import { eq, and, desc, count, inArray } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import { getNotificationsInput, markAsReadInput, markAllAsReadInput, createNotificationInput } from '../inputs/notifications';
 
@@ -116,7 +116,7 @@ export const markAsRead = async (req: Request, res: Response) => {
       .set({ read: 'true' })
       .where(and(
         eq(notification.recipientId, userId),
-        sql`${notification.id} = ANY(${notificationIds})`,
+        inArray(notification.id, notificationIds),
       ))
       .returning();
 

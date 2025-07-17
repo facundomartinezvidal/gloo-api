@@ -18,10 +18,6 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
     const authHeader = req.headers.authorization;
     const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
 
-    console.log('🔍 Auth Debug - URL:', req.originalUrl);
-    console.log('🔍 Auth Debug - Method:', req.method);
-    console.log('🔍 Auth Debug - Auth Header Present:', !!authHeader);
-    console.log('🔍 Auth Debug - Bearer Token Length:', bearerToken?.length || 0);
 
     if (!bearerToken) {
       console.log('❌ Auth Debug - No bearer token found');

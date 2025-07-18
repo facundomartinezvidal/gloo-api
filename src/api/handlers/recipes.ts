@@ -628,3 +628,73 @@ export const getTrendingRecipes = async (req: Request, res: Response) => {
   }
 };
 
+export const getRecipeById = async (req: Request, res: Response) => {
+  try {
+    const recipeId = parseInt(req.params.id);
+
+    if (isNaN(recipeId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID de receta inválido',
+      });
+    }
+
+    // Obtener la receta
+    const recipeData = await db.select()
+      .from(recipe)
+      .where(eq(recipe.id, recipeId))
+      .limit(1);
+
+    if (recipeData.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Receta no encontrada',
+      });
+    }
+
+    const r = recipeData[0];
+
+    // Obtener datos relacionados en paralelo
+    const [rates, comments, ingredients, instructions, averageRating, likes] = await Promise.all([
+      db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id)),
+      db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
+      db.select().from(ingredient).where(eq(ingredient.recipeId, r.id)).orderBy(asc(ingredient.id)),
+      db.select().from(instruction).where(eq(instruction.recipeId, r.id)).orderBy(asc(instruction.step)),
+      db.select({ avg: avg(rate.rate) }).from(rate).where(eq(rate.recipeId, r.id)),
+      db.select({ count: count() }).from(recipeLike).where(eq(recipeLike.recipeId, r.id)),
+    ]);
+
+    // Obtener información del usuario
+    const user = await clerkClient.users.getUser(r.userId as string);
+
+    const recipeWithDetails = {
+      ...r,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.emailAddresses?.[0]?.emailAddress || '',
+        imageUrl: user.imageUrl,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+      rates: rates[0].count,
+      likes: likes[0].count,
+      comments: comments[0].count,
+      ingredients: ingredients,
+      instructions: instructions,
+      averageRating: averageRating[0].avg ? parseFloat(averageRating[0].avg.toString()) : 0,
+    };
+
+    res.json({
+      success: true,
+      data: recipeWithDetails,
+    });
+  } catch (error) {
+    console.error('Error getting recipe by ID:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+    });
+  }
+};
+

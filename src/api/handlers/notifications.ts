@@ -138,8 +138,13 @@ export const markAsRead = async (req: Request, res: Response) => {
       });
     }
 
+    // Helper function para manejar la conversión de tipos
+    const isNotificationRead = (readValue: any): boolean => {
+      return readValue === 'true' || readValue === true;
+    };
+
     // Verificar que tenemos notificaciones no leídas
-    const unreadNotifications = existingNotifications.filter(n => n.read === 'false');
+    const unreadNotifications = existingNotifications.filter(n => !isNotificationRead(n.read));
     console.log('[markAsRead] Unread notifications to update:', unreadNotifications);
 
     if (unreadNotifications.length === 0) {
@@ -150,14 +155,14 @@ export const markAsRead = async (req: Request, res: Response) => {
           updatedCount: 0,
           notifications: existingNotifications.map(notif => ({
             ...notif,
-            read: notif.read === 'true',
+            read: isNotificationRead(notif.read),
           })),
         },
         message: 'All notifications were already marked as read',
       });
     }
 
-    // Marcar notificaciones como leídas solo si pertenecen al usuario y están como no leídas
+    // Marcar notificaciones como leídas - sin filtro adicional por read ya que sabemos cuáles actualizar
     console.log('[markAsRead] About to update with query conditions...');
     const updatedNotifications = await db.update(notification)
       .set({ 
@@ -166,7 +171,6 @@ export const markAsRead = async (req: Request, res: Response) => {
       .where(and(
         eq(notification.recipientId, userId),
         inArray(notification.id, notificationIds),
-        eq(notification.read, 'false'), // Solo actualizar las que están como no leídas
       ))
       .returning();
 

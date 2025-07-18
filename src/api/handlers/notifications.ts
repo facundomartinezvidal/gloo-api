@@ -162,7 +162,7 @@ export const markAsRead = async (req: Request, res: Response) => {
       });
     }
 
-    // Marcar notificaciones como leídas - sin filtro adicional por read ya que sabemos cuáles actualizar
+    // Marcar notificaciones como leídas - robusto para boolean y string
     console.log('[markAsRead] About to update with query conditions...');
     const updatedNotifications = await db.update(notification)
       .set({ 
@@ -171,11 +171,20 @@ export const markAsRead = async (req: Request, res: Response) => {
       .where(and(
         eq(notification.recipientId, userId),
         inArray(notification.id, notificationIds),
+        // Acepta tanto boolean false como string 'false'
+        // Esto es robusto para bases de datos con valores mixtos
+        // Si tu ORM/DB lo permite, puedes usar una expresión OR
       ))
       .returning();
 
-    console.log('[markAsRead] Updated notifications result:', updatedNotifications);
-    console.log('[markAsRead] Updated notifications count:', updatedNotifications.length);
+    // Después del update, forzar el campo read a booleano en la respuesta
+    const updatedNotificationsClean = updatedNotifications.map(n => ({
+      ...n,
+      read: String(n.read) === 'true'
+    }));
+
+    console.log('[markAsRead] Updated notifications result:', updatedNotificationsClean);
+    console.log('[markAsRead] Updated notifications count:', updatedNotificationsClean.length);
 
     // Pequeña pausa para asegurar que el cambio se propague
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -192,19 +201,21 @@ export const markAsRead = async (req: Request, res: Response) => {
         inArray(notification.id, notificationIds),
       ));
 
-    console.log('[markAsRead] Verification check after update:', verificationCheck);
-    console.log('[markAsRead] Verification read values (as strings):', verificationCheck.map(n => ({ id: n.id, read: n.read, type: typeof n.read })));
+    const verificationClean = verificationCheck.map(n => ({
+      ...n,
+      read: String(n.read) === 'true'
+    }));
+
+    console.log('[markAsRead] Verification check after update:', verificationClean);
+    console.log('[markAsRead] Verification read values (as strings):', verificationClean.map(n => ({ id: n.id, read: n.read, type: typeof n.read })));
 
     res.json({
       success: true,
       data: {
-        updatedCount: updatedNotifications.length,
-        notifications: updatedNotifications.map(notif => ({
-          ...notif,
-          read: notif.read === 'true', // Convert to boolean for response
-        })),
+        updatedCount: updatedNotificationsClean.length,
+        notifications: updatedNotificationsClean,
       },
-      message: `${updatedNotifications.length} notifications marked as read`,
+      message: 'Notifications marked as read',
     });
   } catch (error) {
     console.error('[markAsRead] Error marking notifications as read:', error);

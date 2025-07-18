@@ -128,6 +128,7 @@ export const markAsRead = async (req: Request, res: Response) => {
       ));
 
     console.log('[markAsRead] Found existing notifications:', existingNotifications);
+    console.log('[markAsRead] Existing notifications read values (as strings):', existingNotifications.map(n => ({ id: n.id, read: n.read, type: typeof n.read })));
 
     if (existingNotifications.length === 0) {
       console.log(`[markAsRead] No notifications found for userId ${userId} with provided IDs`);
@@ -137,7 +138,27 @@ export const markAsRead = async (req: Request, res: Response) => {
       });
     }
 
-    // Marcar notificaciones como leídas solo si pertenecen al usuario
+    // Verificar que tenemos notificaciones no leídas
+    const unreadNotifications = existingNotifications.filter(n => n.read === 'false');
+    console.log('[markAsRead] Unread notifications to update:', unreadNotifications);
+
+    if (unreadNotifications.length === 0) {
+      console.log('[markAsRead] All notifications are already read');
+      return res.json({
+        success: true,
+        data: {
+          updatedCount: 0,
+          notifications: existingNotifications.map(notif => ({
+            ...notif,
+            read: notif.read === 'true',
+          })),
+        },
+        message: 'All notifications were already marked as read',
+      });
+    }
+
+    // Marcar notificaciones como leídas solo si pertenecen al usuario y están como no leídas
+    console.log('[markAsRead] About to update with query conditions...');
     const updatedNotifications = await db.update(notification)
       .set({ 
         read: 'true',
@@ -145,10 +166,15 @@ export const markAsRead = async (req: Request, res: Response) => {
       .where(and(
         eq(notification.recipientId, userId),
         inArray(notification.id, notificationIds),
+        eq(notification.read, 'false'), // Solo actualizar las que están como no leídas
       ))
       .returning();
 
-    console.log('[markAsRead] Updated notifications:', updatedNotifications);
+    console.log('[markAsRead] Updated notifications result:', updatedNotifications);
+    console.log('[markAsRead] Updated notifications count:', updatedNotifications.length);
+
+    // Pequeña pausa para asegurar que el cambio se propague
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     // Verificar que la actualización fue exitosa
     const verificationCheck = await db.select({
@@ -163,6 +189,7 @@ export const markAsRead = async (req: Request, res: Response) => {
       ));
 
     console.log('[markAsRead] Verification check after update:', verificationCheck);
+    console.log('[markAsRead] Verification read values (as strings):', verificationCheck.map(n => ({ id: n.id, read: n.read, type: typeof n.read })));
 
     res.json({
       success: true,

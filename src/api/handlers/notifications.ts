@@ -109,30 +109,78 @@ export const getNotifications = async (req: Request, res: Response) => {
 export const markAsRead = async (req: Request, res: Response) => {
   try {
     const userId = req.params.userId;
+    console.log(`[markAsRead] Starting for userId: ${userId}`);
+    console.log('[markAsRead] Request body:', req.body);
+    
     const { notificationIds } = markAsReadInput.parse(req.body);
+    console.log('[markAsRead] Parsed notificationIds:', notificationIds);
+
+    // Verificar que las notificaciones existen y pertenecen al usuario antes de actualizar
+    const existingNotifications = await db.select({
+      id: notification.id,
+      recipientId: notification.recipientId,
+      read: notification.read,
+    })
+      .from(notification)
+      .where(and(
+        eq(notification.recipientId, userId),
+        inArray(notification.id, notificationIds),
+      ));
+
+    console.log('[markAsRead] Found existing notifications:', existingNotifications);
+
+    if (existingNotifications.length === 0) {
+      console.log(`[markAsRead] No notifications found for userId ${userId} with provided IDs`);
+      return res.status(404).json({
+        success: false,
+        error: 'No notifications found for the provided IDs',
+      });
+    }
 
     // Marcar notificaciones como leídas solo si pertenecen al usuario
     const updatedNotifications = await db.update(notification)
-      .set({ read: 'true' })
+      .set({ 
+        read: 'true',
+      })
       .where(and(
         eq(notification.recipientId, userId),
         inArray(notification.id, notificationIds),
       ))
       .returning();
 
+    console.log('[markAsRead] Updated notifications:', updatedNotifications);
+
+    // Verificar que la actualización fue exitosa
+    const verificationCheck = await db.select({
+      id: notification.id,
+      recipientId: notification.recipientId,
+      read: notification.read,
+    })
+      .from(notification)
+      .where(and(
+        eq(notification.recipientId, userId),
+        inArray(notification.id, notificationIds),
+      ));
+
+    console.log('[markAsRead] Verification check after update:', verificationCheck);
+
     res.json({
       success: true,
       data: {
         updatedCount: updatedNotifications.length,
-        notifications: updatedNotifications,
+        notifications: updatedNotifications.map(notif => ({
+          ...notif,
+          read: notif.read === 'true', // Convert to boolean for response
+        })),
       },
-      message: 'Notifications marked as read',
+      message: `${updatedNotifications.length} notifications marked as read`,
     });
   } catch (error) {
-    console.error('Error marking notifications as read:', error);
+    console.error('[markAsRead] Error marking notifications as read:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 };

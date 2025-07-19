@@ -80,7 +80,8 @@ export const searchRecipes = async (req: Request, res: Response) => {
           console.error('Error searching in Clerk:', clerkError);
         }
         if (clerkUserIds.length > 0) {
-          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds}::text[])`);
+          const userIdArray = Array.isArray(clerkUserIds) ? clerkUserIds : [clerkUserIds];
+          textConditions.push(sql`${recipe.userId} = ANY(${userIdArray})`);
         }
         conditions.push(or(...textConditions));
       }
@@ -780,7 +781,8 @@ export const searchAll = async (req: Request, res: Response) => {
           console.error('Error searching in Clerk:', clerkError);
         }
         if (clerkUserIds.length > 0) {
-          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds}::text[])`);
+          const userIdArray = Array.isArray(clerkUserIds) ? clerkUserIds : [clerkUserIds];
+          textConditions.push(sql`${recipe.userId} = ANY(${userIdArray})`);
         }
         conditions.push(or(...textConditions));
       }

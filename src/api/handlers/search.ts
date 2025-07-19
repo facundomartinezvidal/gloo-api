@@ -11,6 +11,7 @@ import {
   recipeCategories,
   searchHistory,
   searchSuggestions,
+  users,
 } from '../../db/schema';
 import { and, desc, eq, ilike, or, sql, count, asc } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
@@ -109,7 +110,7 @@ export const searchRecipes = async (req: Request, res: Response) => {
               )
             )
           );
-        
+        // Filtrar nulos para que sea number[]
         recipeIdsToExclude = excludedRecipes.map(ir => ir.recipeId).filter((id): id is number => id !== null);
       }
     }
@@ -594,6 +595,162 @@ export const removeCategoryFromRecipe = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error removing category from recipe:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+    });
+  }
+}; 
+
+// Búsqueda específica de usuarios
+export const searchUsers = async (req: Request, res: Response) => {
+  try {
+    const { query, page, limit } = {
+      query: req.query.query as string,
+      page: req.query.page ? parseInt(req.query.page as string) : 1,
+      limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
+    };
+
+    if (!query || query.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Query parameter is required',
+      });
+    }
+
+    const offset = (page - 1) * limit;
+    const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+
+    // Buscar usuarios que coincidan con los términos de búsqueda
+    const userConditions = searchTerms.map(term => 
+      or(
+        ilike(users.idSocialMedia, `%${term}%`),
+        ilike(users.description, `%${term}%`)
+      )
+    );
+
+    const foundUsers = await db
+      .select({
+        externalId: users.externalId,
+        idSocialMedia: users.idSocialMedia,
+        description: users.description,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(or(...userConditions))
+      .limit(limit)
+      .offset(offset);
+
+    // Para cada usuario encontrado, obtener sus recetas
+    const usersWithRecipes = await Promise.all(
+      foundUsers.map(async (user) => {
+        try {
+          // Obtener datos de Clerk si está disponible
+          let clerkUserData = null;
+          try {
+            const clerkUser = await clerkClient.users.getUser(user.externalId);
+            clerkUserData = {
+              username: clerkUser.username,
+              email: clerkUser.emailAddresses[0]?.emailAddress,
+              imageUrl: clerkUser.imageUrl,
+              firstName: clerkUser.firstName,
+              lastName: clerkUser.lastName,
+            };
+          } catch (error) {
+            console.log(`Clerk not available for user ${user.externalId}`);
+          }
+
+          // Obtener recetas del usuario
+          const userRecipes = await db
+            .select({
+              id: recipe.id,
+              title: recipe.title,
+              description: recipe.description,
+              estimatedTime: recipe.estimatedTime,
+              servings: recipe.servings,
+              image: recipe.image,
+              mediaType: recipe.mediaType,
+              createdAt: recipe.createdAt,
+            })
+            .from(recipe)
+            .where(eq(recipe.userId, user.externalId))
+            .orderBy(desc(recipe.createdAt))
+            .limit(10); // Limitar a 10 recetas por usuario
+
+          // Obtener estadísticas de las recetas
+          const recipesWithStats = await Promise.all(
+            userRecipes.map(async (r) => {
+              const [ratesResult, likesResult, commentsResult] = await Promise.all([
+                db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id)),
+                db.select({ count: count() }).from(recipeLike).where(eq(recipeLike.recipeId, r.id)),
+                db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
+              ]);
+
+              const avgRating = await db
+                .select({ avg: sql<number>`COALESCE(AVG(rate), 0)` })
+                .from(rate)
+                .where(eq(rate.recipeId, r.id));
+
+              return {
+                ...r,
+                rating: avgRating[0]?.avg || 0,
+                stats: {
+                  rates: ratesResult[0]?.count || 0,
+                  likes: likesResult[0]?.count || 0,
+                  comments: commentsResult[0]?.count || 0,
+                },
+              };
+            })
+          );
+
+          return {
+            id: user.externalId,
+            username: clerkUserData?.username || user.idSocialMedia || 'Usuario',
+            email: clerkUserData?.email,
+            imageUrl: clerkUserData?.imageUrl,
+            firstName: clerkUserData?.firstName,
+            lastName: clerkUserData?.lastName,
+            description: user.description,
+            createdAt: user.createdAt,
+            recipes: recipesWithStats,
+            recipeCount: recipesWithStats.length,
+          };
+        } catch (error) {
+          console.error(`Error processing user ${user.externalId}:`, error);
+          return {
+            id: user.externalId,
+            username: user.idSocialMedia || 'Usuario',
+            email: null,
+            imageUrl: null,
+            firstName: null,
+            lastName: null,
+            description: user.description,
+            createdAt: user.createdAt,
+            recipes: [],
+            recipeCount: 0,
+          };
+        }
+      })
+    );
+
+    // Contar total de usuarios que coinciden
+    const totalUsers = await db
+      .select({ count: count() })
+      .from(users)
+      .where(or(...userConditions));
+
+    res.json({
+      success: true,
+      data: usersWithRecipes,
+      pagination: {
+        page,
+        limit,
+        total: totalUsers[0]?.count || 0,
+        totalPages: Math.ceil((totalUsers[0]?.count || 0) / limit),
+      },
+    });
+  } catch (error) {
+    console.error('Error searching users:', error);
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',

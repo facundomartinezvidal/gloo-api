@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   searchRecipes,
+  searchUsers,
   getSearchSuggestions,
   getUserSearchHistory,
   addToSearchHistory,
@@ -14,6 +15,7 @@ const router = express.Router();
 
 // Rutas principales de búsqueda
 router.get('/', searchRecipes); // GET /search?query=chicken&categoryId=1&page=1&limit=20&sortBy=relevance
+router.get('/users', searchUsers); // GET /search/users?query=username&page=1&limit=20
 router.get('/suggestions', getSearchSuggestions); // GET /search/suggestions
 router.get('/categories', getCategories); // GET /search/categories
 

@@ -1,7 +1,12 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
+<<<<<<< HEAD
 import { ingredient, instruction, rate, recipe, recipeLike, recipeComment, follow } from '../../db/schema';
 import { count, eq, avg, inArray } from 'drizzle-orm';
+=======
+import { ingredient, instruction, rate, recipe, recipeLike, recipeComment, users } from '../../db/schema';
+import { count, eq, asc, avg } from 'drizzle-orm';
+>>>>>>> 53007585cd13c6d0fb33bf4531a0ab3e575b0576
 import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
 import { supabase } from '../lib/supabase';
@@ -61,7 +66,7 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
         db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
         db.select().from(ingredient).where(eq(ingredient.recipeId, r.id)),
         db.select().from(instruction).where(eq(instruction.recipeId, r.id)),
-        db.select({ avg: avg(rate.rate) }).from(rate).where(eq(rate.recipeId, r.id))
+        db.select({ avg: avg(rate.rate) }).from(rate).where(eq(rate.recipeId, r.id)),
       ]);
       
       const user = await clerkClient.users.getUser(r.userId as string);
@@ -96,8 +101,35 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
 
 export const createRecipe = async (req: Request, res: Response) => {
   try {
+<<<<<<< HEAD
     const { title, description, estimatedTime, servings, media, ingredients, instructions } = createRecipeInput.parse(req.body);
+=======
+    const { title, description, estimatedTime, media, ingredients, instructions, servings } = req.body;
+>>>>>>> 53007585cd13c6d0fb33bf4531a0ab3e575b0576
     const userId = req.params.userId;
+    
+    // Verificar si el usuario existe en la tabla local, si no, crearlo
+    const existingUser = await db.select().from(users).where(eq(users.externalId, userId));
+    
+    if (existingUser.length === 0) {
+      try {
+        // Verificar que el usuario existe en Clerk
+        await clerkClient.users.getUser(userId);
+        
+        // Crear el usuario en la tabla local
+        await db.insert(users).values({
+          externalId: userId,
+          description: null,
+          idSocialMedia: null,
+        });
+      } catch (clerkError) {
+        console.error('Error fetching user from Clerk:', clerkError);
+        return res.status(400).json({
+          success: false,
+          error: 'Usuario no válido',
+        });
+      }
+    }
     
     let mediaUrl: string | null = null;
     let mediaType: 'image' | 'video' | null = null;
@@ -171,8 +203,10 @@ export const createRecipe = async (req: Request, res: Response) => {
       userId,
       image: mediaUrl,
       mediaType: mediaType,
+      servings: servings || 4,
     }).returning();
 
+<<<<<<< HEAD
     const recipeId = newRecipe[0].id;
 
     // Process ingredients if provided
@@ -187,12 +221,31 @@ export const createRecipe = async (req: Request, res: Response) => {
 
     // Process instructions if provided
     if (instructions && instructions.length > 0) {
+=======
+    // Add ingredients if provided
+    if (ingredients && Array.isArray(ingredients) && ingredients.length > 0) {
+      const ingredientsToInsert = ingredients.map(ing => ({
+        recipeId: newRecipe[0].id,
+        name: ing.name,
+        quantity: ing.quantity || 1,
+        unit: ing.unit || '',
+        description: ing.description || null,
+      }));
+
+      await db.insert(ingredient).values(ingredientsToInsert);
+    }
+
+    // Add instructions if provided
+    if (instructions && Array.isArray(instructions) && instructions.length > 0) {
+      // Process each instruction and handle image uploads
+>>>>>>> 53007585cd13c6d0fb33bf4531a0ab3e575b0576
       const processedInstructions = await Promise.all(
         instructions.map(async (inst, index) => {
           let imageUrl: string | null = null;
 
           // Only process image if provided
           if (inst.image) {
+<<<<<<< HEAD
             imageUrl = inst.image; // Default to use provided URL
 
             // If image comes as base64, upload to Supabase Storage
@@ -231,13 +284,77 @@ export const createRecipe = async (req: Request, res: Response) => {
                 .getPublicUrl(fileName);
 
               imageUrl = urlData.publicUrl;
+=======
+            // If image comes as base64, upload to Supabase Storage
+            if (inst.image.startsWith('data:')) {
+              try {
+                // Extract file type and base64 data
+                const [header, base64Data] = inst.image.split(',');
+                if (!header || !base64Data) {
+                  throw new Error('Formato de imagen base64 inválido');
+                }
+                
+                const mimeMatch = header.match(/data:([^;]+)/);
+                const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+                
+                // Validate that it's an image (only images for instructions)
+                if (!mimeType.startsWith('image/')) {
+                  throw new Error('Solo se permiten archivos de imagen para instrucciones');
+                }
+                
+                // Convert base64 to buffer
+                const buffer = Buffer.from(base64Data, 'base64');
+                
+                // Generate unique filename
+                const extension = mimeType.split('/')[1];
+                const fileName = `instructions/${newRecipe[0].id}/${Date.now()}-step-${index + 1}.${extension}`;
+                
+                // Upload file to Supabase Storage
+                const { error: uploadError } = await supabase.storage
+                  .from('recipe.content')
+                  .upload(fileName, buffer, {
+                    contentType: mimeType,
+                    upsert: false,
+                  });
+
+                if (uploadError) {
+                  console.error('Storage upload error:', uploadError);
+                  throw new Error(`Error al subir imagen: ${uploadError.message}`);
+                }
+
+                // Get public URL of the file
+                const { data: urlData } = supabase.storage
+                  .from('recipe.content')
+                  .getPublicUrl(fileName);
+
+                if (!urlData?.publicUrl) {
+                  throw new Error('No se pudo obtener la URL pública de la imagen');
+                }
+
+                imageUrl = urlData.publicUrl;
+                
+              } catch (uploadError) {
+                console.error('Error processing image for instruction:', uploadError);
+                // In case of error, don't save the instruction with base64
+                throw uploadError;
+              }
+            } else {
+              // If not base64, assume it's a valid URL
+              imageUrl = inst.image;
+>>>>>>> 53007585cd13c6d0fb33bf4531a0ab3e575b0576
             }
           }
 
           return {
+<<<<<<< HEAD
             recipeId,
             step: index + 1,
             description: inst.description,
+=======
+            recipeId: newRecipe[0].id,
+            step: index + 1,
+            description: inst.description || inst.step || '',
+>>>>>>> 53007585cd13c6d0fb33bf4531a0ab3e575b0576
             image: imageUrl,
           };
         }),
@@ -246,9 +363,24 @@ export const createRecipe = async (req: Request, res: Response) => {
       await db.insert(instruction).values(processedInstructions);
     }
 
+<<<<<<< HEAD
+=======
+    // Get the complete recipe with ingredients and instructions
+    const [recipeIngredients, recipeInstructions] = await Promise.all([
+      db.select().from(ingredient).where(eq(ingredient.recipeId, newRecipe[0].id)),
+      db.select().from(instruction).where(eq(instruction.recipeId, newRecipe[0].id)).orderBy(asc(instruction.step)),
+    ]);
+
+    const completeRecipe = {
+      ...newRecipe[0],
+      ingredients: recipeIngredients,
+      instructions: recipeInstructions,
+    };
+
+>>>>>>> 53007585cd13c6d0fb33bf4531a0ab3e575b0576
     res.json({
       success: true,
-      data: newRecipe[0],
+      data: completeRecipe,
     });
   } catch (error) {
     console.error('Error creating recipe:', error);

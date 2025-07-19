@@ -20,6 +20,7 @@ export const recipe = pgTable('recipe', {
   servings: integer('servings'),
   image: text('image'),
   mediaType: text('media_type'),
+  status: text('status').default('pending'), // 'pending', 'approved', 'rejected', 'pending_delete'
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   createdBy: text('created_by'),

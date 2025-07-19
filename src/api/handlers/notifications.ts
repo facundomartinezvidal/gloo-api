@@ -49,17 +49,39 @@ export const getNotifications = async (req: Request, res: Response) => {
         
         if (notif.senderId) {
           try {
-            const sender = await clerkClient.users.getUser(notif.senderId);
-            senderInfo = {
-              id: sender.id,
-              username: sender.username,
-              email: sender.emailAddresses[0]?.emailAddress,
-              imageUrl: sender.imageUrl,
-              firstName: sender.firstName,
-              lastName: sender.lastName,
-            };
+            // Intentar obtener datos de Clerk
+            if (process.env.CLERK_SECRET_KEY) {
+              const sender = await clerkClient.users.getUser(notif.senderId);
+              senderInfo = {
+                id: sender.id,
+                username: sender.username,
+                email: sender.emailAddresses[0]?.emailAddress,
+                imageUrl: sender.imageUrl,
+                firstName: sender.firstName,
+                lastName: sender.lastName,
+              };
+            } else {
+              // Si no hay configuración de Clerk, usar datos básicos
+              senderInfo = {
+                id: notif.senderId,
+                username: `user_${notif.senderId.substring(0, 8)}`,
+                email: null,
+                imageUrl: null,
+                firstName: 'Usuario',
+                lastName: '',
+              };
+            }
           } catch (error) {
             console.error(`Error getting sender info for ${notif.senderId}:`, error);
+            // Fallback con datos básicos
+            senderInfo = {
+              id: notif.senderId,
+              username: `user_${notif.senderId.substring(0, 8)}`,
+              email: null,
+              imageUrl: null,
+              firstName: 'Usuario',
+              lastName: '',
+            };
           }
         }
 

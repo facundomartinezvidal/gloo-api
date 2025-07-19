@@ -1,8 +1,9 @@
 import express from 'express';
 import morgan from 'morgan';
 import helmet from 'helmet';
-import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
+import cors from 'cors';
+import { clerkClient } from '@clerk/express';
 
 import * as middlewares from './middlewares';
 import api from './api';
@@ -11,6 +12,11 @@ import { recipe } from './db/schema';
 import { db } from './db';
 
 require('dotenv').config();
+
+// Configurar Clerk
+if (!process.env.CLERK_SECRET_KEY) {
+  console.warn('⚠️  CLERK_SECRET_KEY no está configurada. Algunas funcionalidades pueden no funcionar.');
+}
 
 const app = express();
 

@@ -157,14 +157,14 @@ export const getComments = async (req: Request, res: Response) => {
       comments.map(async (comment) => {
         try {
           // Primero intentar obtener datos del usuario desde la tabla users
-          console.log(`Trying to get user from DB for ${comment.userId}`);
+
           const dbUser = await db.select()
             .from(users)
             .where(eq(users.externalId, comment.userId))
             .limit(1);
           
           if (dbUser.length > 0) {
-            console.log(`Found user in DB for ${comment.userId}:`, dbUser[0]);
+
             
             // Intentar obtener datos adicionales de Clerk si está disponible
             try {
@@ -181,7 +181,7 @@ export const getComments = async (req: Request, res: Response) => {
                 },
               };
             } catch (clerkError) {
-              console.log(`Clerk not available for ${comment.userId}, using DB data only`);
+
               return {
                 ...comment,
                 user: {
@@ -196,7 +196,7 @@ export const getComments = async (req: Request, res: Response) => {
             }
           } else {
             // Si no está en la DB, intentar obtener de Clerk
-            console.log(`User not in DB, trying Clerk for ${comment.userId}`);
+
             const clerkUser = await clerkClient.users.getUser(comment.userId);
             return {
               ...comment,

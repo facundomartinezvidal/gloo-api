@@ -8,18 +8,78 @@ import { createFollowNotification } from './notifications';
 
 export const followUser = async (req: Request, res: Response) => {
   try {
+    console.log('=== FOLLOW USER REQUEST ===');
+    console.log('Request body:', req.body);
+    console.log('Request params:', req.params);
+    console.log('Request headers:', req.headers);
+    
     const { followingId } = followUserInput.parse(req.body);
     const followerId = req.params.userId;
+    
+    console.log('Parsed values:', { followerId, followingId });
+    console.log('Are they equal?', followerId === followingId);
+    console.log('followerId type:', typeof followerId);
+    console.log('followingId type:', typeof followingId);
+    console.log('followerId length:', followerId?.length);
+    console.log('followingId length:', followingId?.length);
+
+    // Verificar que ambos usuarios existen
+    try {
+      // Intentar obtener datos del usuario desde Clerk
+      if (process.env.CLERK_SECRET_KEY) {
+        await clerkClient.users.getUser(followerId);
+        await clerkClient.users.getUser(followingId);
+      }
+    } catch (clerkError) {
+      console.error(`Could not get user from Clerk for ${followerId} or ${followingId}:`, clerkError);
+      // Continuar sin verificación de Clerk si no está configurado
+    }
+
 
     // Verificar que el usuario no se siga a sí mismo
     if (followerId === followingId) {
+      console.log('ERROR: Cannot follow yourself - IDs are equal');
       return res.status(400).json({
         success: false,
         error: 'Cannot follow yourself',
       });
     }
 
-    // Verificar que ambos usuarios existan
+    // Función auxiliar para crear usuario si no existe
+    const ensureUserExists = async (userId: string) => {
+      const existingUser = await db.select()
+        .from(users)
+        .where(eq(users.externalId, userId))
+        .limit(1);
+
+      if (existingUser.length === 0) {
+        try {
+          // Intentar obtener datos del usuario desde Clerk
+          await clerkClient.users.getUser(userId);
+        } catch (clerkError) {
+          console.error(`Could not get user from Clerk for ${userId}:`, clerkError);
+        }
+
+        // Crear usuario en la base de datos
+        await db.insert(users).values({
+          externalId: userId,
+          description: null,
+          idSocialMedia: null,
+          createdBy: userId,
+        });
+
+        return true;
+      }
+      return false;
+    };
+
+    // Verificar que ambos usuarios existan, creándolos si es necesario
+    await Promise.all([
+      ensureUserExists(followerId),
+      ensureUserExists(followingId),
+    ]);
+
+    // Verificar que ambos usuarios existan después de la creación
     const [followerExists, followingExists] = await Promise.all([
       db.select().from(users).where(eq(users.externalId, followerId)).limit(1),
       db.select().from(users).where(eq(users.externalId, followingId)).limit(1),
@@ -83,6 +143,8 @@ export const unfollowUser = async (req: Request, res: Response) => {
     const { followingId } = unfollowUserInput.parse(req.body);
     const followerId = req.params.userId;
 
+
+
     // Verificar que el usuario no se desiga a sí mismo
     if (followerId === followingId) {
       return res.status(400).json({
@@ -90,6 +152,32 @@ export const unfollowUser = async (req: Request, res: Response) => {
         error: 'Cannot unfollow yourself',
       });
     }
+
+    // Función auxiliar para crear usuario si no existe
+    const ensureUserExists = async (userId: string) => {
+      const existingUser = await db.select()
+        .from(users)
+        .where(eq(users.externalId, userId))
+        .limit(1);
+
+      if (existingUser.length === 0) {
+
+        await db.insert(users).values({
+          externalId: userId,
+          description: null,
+          idSocialMedia: null,
+          createdBy: userId,
+        });
+        return true;
+      }
+      return false;
+    };
+
+    // Verificar que ambos usuarios existan, creándolos si es necesario
+    await Promise.all([
+      ensureUserExists(followerId),
+      ensureUserExists(followingId),
+    ]);
 
     // Verificar si existe la relación
     const existingFollow = await db.select()
@@ -148,12 +236,11 @@ export const getFollowers = async (req: Request, res: Response) => {
     const followersWithInfo = await Promise.all(
       followers.map(async (follower) => {
         try {
-          const clerkUser = await clerkClient.users.getUser(follower.followerId);
-          return {
-            id: follower.id,
-            followerId: follower.followerId,
-            createdAt: follower.createdAt,
-            user: {
+          let userInfo = null;
+          
+          if (process.env.CLERK_SECRET_KEY) {
+            const clerkUser = await clerkClient.users.getUser(follower.followerId);
+            userInfo = {
               id: clerkUser.id,
               username: clerkUser.username,
               email: clerkUser.emailAddresses[0]?.emailAddress,
@@ -164,7 +251,28 @@ export const getFollowers = async (req: Request, res: Response) => {
               description: follower.userDescription,
               idSocialMedia: follower.userIdSocialMedia,
               profileCreatedAt: follower.userCreatedAt,
-            },
+            };
+          } else {
+            // Fallback sin Clerk
+            userInfo = {
+              id: follower.followerId,
+              username: `user_${follower.followerId.substring(0, 8)}`,
+              email: null,
+              imageUrl: null,
+              firstName: 'Usuario',
+              lastName: '',
+              // Datos adicionales de la tabla users
+              description: follower.userDescription,
+              idSocialMedia: follower.userIdSocialMedia,
+              profileCreatedAt: follower.userCreatedAt,
+            };
+          }
+          
+          return {
+            id: follower.id,
+            followerId: follower.followerId,
+            createdAt: follower.createdAt,
+            user: userInfo,
           };
         } catch (error) {
           console.error(`Error getting user info for ${follower.followerId}:`, error);
@@ -172,7 +280,17 @@ export const getFollowers = async (req: Request, res: Response) => {
             id: follower.id,
             followerId: follower.followerId,
             createdAt: follower.createdAt,
-            user: null,
+            user: {
+              id: follower.followerId,
+              username: `user_${follower.followerId.substring(0, 8)}`,
+              email: null,
+              imageUrl: null,
+              firstName: 'Usuario',
+              lastName: '',
+              description: follower.userDescription,
+              idSocialMedia: follower.userIdSocialMedia,
+              profileCreatedAt: follower.userCreatedAt,
+            },
           };
         }
       }),
@@ -220,12 +338,11 @@ export const getFollowing = async (req: Request, res: Response) => {
     const followingWithInfo = await Promise.all(
       following.map(async (followingUser) => {
         try {
-          const clerkUser = await clerkClient.users.getUser(followingUser.followingId);
-          return {
-            id: followingUser.id,
-            followingId: followingUser.followingId,
-            createdAt: followingUser.createdAt,
-            user: {
+          let userInfo = null;
+          
+          if (process.env.CLERK_SECRET_KEY) {
+            const clerkUser = await clerkClient.users.getUser(followingUser.followingId);
+            userInfo = {
               id: clerkUser.id,
               username: clerkUser.username,
               email: clerkUser.emailAddresses[0]?.emailAddress,
@@ -236,7 +353,28 @@ export const getFollowing = async (req: Request, res: Response) => {
               description: followingUser.userDescription,
               idSocialMedia: followingUser.userIdSocialMedia,
               profileCreatedAt: followingUser.userCreatedAt,
-            },
+            };
+          } else {
+            // Fallback sin Clerk
+            userInfo = {
+              id: followingUser.followingId,
+              username: `user_${followingUser.followingId.substring(0, 8)}`,
+              email: null,
+              imageUrl: null,
+              firstName: 'Usuario',
+              lastName: '',
+              // Datos adicionales de la tabla users
+              description: followingUser.userDescription,
+              idSocialMedia: followingUser.userIdSocialMedia,
+              profileCreatedAt: followingUser.userCreatedAt,
+            };
+          }
+          
+          return {
+            id: followingUser.id,
+            followingId: followingUser.followingId,
+            createdAt: followingUser.createdAt,
+            user: userInfo,
           };
         } catch (error) {
           console.error(`Error getting user info for ${followingUser.followingId}:`, error);
@@ -244,7 +382,17 @@ export const getFollowing = async (req: Request, res: Response) => {
             id: followingUser.id,
             followingId: followingUser.followingId,
             createdAt: followingUser.createdAt,
-            user: null,
+            user: {
+              id: followingUser.followingId,
+              username: `user_${followingUser.followingId.substring(0, 8)}`,
+              email: null,
+              imageUrl: null,
+              firstName: 'Usuario',
+              lastName: '',
+              description: followingUser.userDescription,
+              idSocialMedia: followingUser.userIdSocialMedia,
+              profileCreatedAt: followingUser.userCreatedAt,
+            },
           };
         }
       }),
@@ -345,4 +493,6 @@ export const getUserStats = async (req: Request, res: Response) => {
       error: 'Internal server error',
     });
   }
-}; 
+};
+
+ 

@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   createCollection,
-  getUserCollections,
+  getCollectionsByUser,
   getCollectionRecipes,
   updateCollection,
   deleteCollection,
@@ -9,33 +9,17 @@ import {
   removeRecipeFromDefaultCollection,
   addRecipeToChangedCollection,
   getChangedCollectionRecipes,
-  ensureDefaultCollections,
+  getCollectionsWithDefaultsAndCounts,
 } from '../handlers/collections';
 
 const router = express.Router();
 
 // Rutas para colecciones
 router.post('/:userId', createCollection);                           // Crear nueva colección
-router.get('/:userId', getUserCollections);                          // Obtener todas las colecciones del usuario
+router.get('/:userId', getCollectionsByUser);                          // Obtener todas las colecciones del usuario
 
 // Ruta para crear colecciones por defecto (debe ir antes de las rutas que usan :collectionId)
-router.post('/:userId/default', async (req, res) => {
-  try {
-    const userId = req.params.userId;
-    const collections = await ensureDefaultCollections(userId);
-    res.json({
-      success: true,
-      data: collections,
-      message: 'Colecciones por defecto creadas exitosamente',
-    });
-  } catch (error) {
-    console.error('Error creating default collections:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Error interno del servidor',
-    });
-  }
-});
+router.get('/:userId/defaults', getCollectionsWithDefaultsAndCounts);
 
 router.get('/:userId/:collectionId', getCollectionRecipes);          // Obtener recetas de una colección específica
 router.put('/:userId/:collectionId', updateCollection);              // Actualizar una colección

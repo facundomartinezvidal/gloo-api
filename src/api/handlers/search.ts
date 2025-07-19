@@ -23,11 +23,13 @@ import {
 // Búsqueda principal de recetas
 export const searchRecipes = async (req: Request, res: Response) => {
   try {
-    const { query, categoryId, page, limit, sortBy } = searchRecipesInput.parse({
+    const { query, categoryId, page, limit, sortBy, maxDuration, excludeIngredients } = searchRecipesInput.parse({
       ...req.query,
       page: req.query.page ? parseInt(req.query.page as string) : 1,
       limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
       categoryId: req.query.categoryId ? parseInt(req.query.categoryId as string) : undefined,
+      maxDuration: req.query.maxDuration ? parseInt(req.query.maxDuration as string) : undefined,
+      excludeIngredients: req.query.excludeIngredients as string,
     });
 
     const offset = (page - 1) * limit;
@@ -42,6 +44,33 @@ export const searchRecipes = async (req: Request, res: Response) => {
         ilike(recipe.description, `%${query}%`),
       );
       conditions.push(textSearchCondition);
+    }
+
+    // Filtro por duración máxima
+    if (maxDuration) {
+      conditions.push(sql`${recipe.estimatedTime} <= ${maxDuration}`);
+    }
+
+    // Filtro por ingredientes excluidos
+    let excludedIngredientIds: number[] = [];
+    if (excludeIngredients) {
+      const excludedIngredientNames = excludeIngredients.split(',').map(name => name.trim().toLowerCase());
+      
+      if (excludedIngredientNames.length > 0) {
+        // Buscar IDs de ingredientes que coinciden con los nombres excluidos
+        const excludedIngredientsResult = await db
+          .select({ id: ingredient.id })
+          .from(ingredient)
+          .where(
+            or(
+              ...excludedIngredientNames.map(name => 
+                ilike(ingredient.name, `%${name}%`)
+              )
+            )
+          );
+        
+        excludedIngredientIds = excludedIngredientsResult.map(ing => ing.id);
+      }
     }
 
     // Obtener IDs de recetas que coinciden con la categoría si se especifica
@@ -92,6 +121,21 @@ export const searchRecipes = async (req: Request, res: Response) => {
     
     if (conditions.length > 0) {
       finalConditions.push(...conditions);
+    }
+
+    // Excluir recetas que contengan ingredientes excluidos
+    if (excludedIngredientIds.length > 0) {
+      // Obtener IDs de recetas que contienen ingredientes excluidos
+      const recipesWithExcludedIngredients = await db
+        .selectDistinct({ recipeId: ingredient.recipeId })
+        .from(ingredient)
+        .where(sql`${ingredient.id} = ANY(${excludedIngredientIds})`);
+      
+      const excludedRecipeIds = recipesWithExcludedIngredients.map(r => r.recipeId);
+      
+      if (excludedRecipeIds.length > 0) {
+        finalConditions.push(sql`${recipe.id} NOT IN (${excludedRecipeIds.join(',')})`);
+      }
     }
 
     // Determinar orden

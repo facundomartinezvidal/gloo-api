@@ -79,9 +79,10 @@ export const searchRecipes = async (req: Request, res: Response) => {
         } catch (clerkError) {
           console.error('Error searching in Clerk:', clerkError);
         }
-        if (clerkUserIds.length > 0) {
-          const userIdArray = Array.isArray(clerkUserIds) ? clerkUserIds : [clerkUserIds];
-          textConditions.push(sql`${recipe.userId} = ANY(${userIdArray})`);
+        if (clerkUserIds.length === 1) {
+          textConditions.push(sql`${recipe.userId} = ${clerkUserIds[0]}`);
+        } else if (clerkUserIds.length > 1) {
+          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds})`);
         }
         conditions.push(or(...textConditions));
       }
@@ -780,9 +781,10 @@ export const searchAll = async (req: Request, res: Response) => {
         } catch (clerkError) {
           console.error('Error searching in Clerk:', clerkError);
         }
-        if (clerkUserIds.length > 0) {
-          const userIdArray = Array.isArray(clerkUserIds) ? clerkUserIds : [clerkUserIds];
-          textConditions.push(sql`${recipe.userId} = ANY(${userIdArray})`);
+        if (clerkUserIds.length === 1) {
+          textConditions.push(sql`${recipe.userId} = ${clerkUserIds[0]}`);
+        } else if (clerkUserIds.length > 1) {
+          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds})`);
         }
         conditions.push(or(...textConditions));
       }

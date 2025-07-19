@@ -843,6 +843,7 @@ export const searchAll = async (req: Request, res: Response) => {
       } else if (allUserIds.length > 1) {
         recipeConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(allUserIds, sql`, `)}])`);
       }
+      // Si NO hay coincidencias de usuario, NO agregues condición de usuario (solo busca por texto)
       // Ejecutar query con OR global
       const foundRecipes = await db
         .select({

@@ -616,38 +616,74 @@ export const searchUsers = async (req: Request, res: Response) => {
       });
     }
 
+    const offset = (page - 1) * limit;
+    const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+
     // Buscar usuarios en Clerk
-    const searchTerm = query.toLowerCase().trim();
-    // Clerk no tiene búsqueda directa, así que traemos todos y filtramos (en producción deberías usar paginado o un endpoint de búsqueda si existe)
-    const allClerkUsers = await clerkClient.users.getUserList({ limit: 200 });
-    // Filtrar por username o email
-    const filteredClerkUsers = allClerkUsers.data.filter(user => {
-      const username = user.username?.toLowerCase() || '';
-      const email = user.emailAddresses[0]?.emailAddress?.toLowerCase() || '';
-      return username.includes(searchTerm) || email.includes(searchTerm);
+    let allClerkUsers: any[] = [];
+    try {
+      const clerkUsers = await clerkClient.users.getUserList({ limit: 200 });
+      allClerkUsers = clerkUsers.data;
+    } catch (e) {
+      console.error('Error fetching Clerk users:', e);
+    }
+
+    // Filtrar Clerk por username, email, firstName, lastName
+    const filteredClerkUsers = allClerkUsers.filter((user: any) => {
+      const searchableText = [
+        user.username,
+        user.firstName,
+        user.lastName,
+        user.emailAddresses?.[0]?.emailAddress,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return searchTerms.some(term => searchableText.includes(term));
     });
+    const clerkUserIds = filteredClerkUsers.map((u: any) => u.id);
 
-    // Paginado manual
-    const paginatedUsers = filteredClerkUsers.slice((page - 1) * limit, page * limit);
+    // Buscar en la base local por idSocialMedia y descripción
+    const userConditions = searchTerms.map(term =>
+      or(
+        ilike(users.idSocialMedia, `%${term}%`),
+        ilike(users.description, `%${term}%`)
+      )
+    );
+    const foundDbUsers = await db
+      .select({
+        externalId: users.externalId,
+        idSocialMedia: users.idSocialMedia,
+        description: users.description,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(or(...userConditions))
+      .limit(limit)
+      .offset(offset);
+    const dbUserIds = foundDbUsers.map(u => u.externalId);
 
-    // Para cada usuario, complementar con la base local (bio/description)
-    const usersWithExtra = await Promise.all(
-      paginatedUsers.map(async (clerkUser) => {
-        // Buscar datos extra en la base local
+    // Unir y quitar duplicados
+    const allUserIds = Array.from(new Set([...clerkUserIds, ...dbUserIds]));
+    const paginatedUserIds = allUserIds.slice((page - 1) * limit, page * limit);
+
+    // Para cada usuario, obtener datos de Clerk y DB
+    const usersWithData = await Promise.all(
+      paginatedUserIds.map(async (userId) => {
+        let clerkUserData: any = null;
         let dbUser = null;
         try {
-          const dbUserArr = await db.select().from(users).where(eq(users.externalId, clerkUser.id)).limit(1);
+          const clerkUser = allClerkUsers.find((u: any) => u.id === userId) || await clerkClient.users.getUser(userId);
+          clerkUserData = clerkUser;
+        } catch (e) {}
+        try {
+          const dbUserArr = await db.select().from(users).where(eq(users.externalId, userId)).limit(1);
           dbUser = dbUserArr[0] || null;
-        } catch (e) {
-          dbUser = null;
-        }
+        } catch (e) {}
         return {
-          id: clerkUser.id,
-          username: clerkUser.username,
-          email: clerkUser.emailAddresses[0]?.emailAddress,
-          imageUrl: clerkUser.imageUrl,
-          firstName: clerkUser.firstName,
-          lastName: clerkUser.lastName,
+          id: userId,
+          username: clerkUserData?.username || dbUser?.idSocialMedia || 'Usuario',
+          email: clerkUserData?.emailAddresses?.[0]?.emailAddress,
+          imageUrl: clerkUserData?.imageUrl,
+          firstName: clerkUserData?.firstName,
+          lastName: clerkUserData?.lastName,
           description: dbUser?.description || null,
           createdAt: dbUser?.createdAt || null,
         };
@@ -656,12 +692,12 @@ export const searchUsers = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      data: usersWithExtra,
+      data: usersWithData,
       pagination: {
         page,
         limit,
-        total: filteredClerkUsers.length,
-        totalPages: Math.ceil(filteredClerkUsers.length / limit),
+        total: allUserIds.length,
+        totalPages: Math.ceil(allUserIds.length / limit),
       },
     });
   } catch (error) {

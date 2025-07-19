@@ -811,7 +811,7 @@ export const searchAll = async (req: Request, res: Response) => {
         );
       recipeConditions.push(sql`${recipe.id} IN (${ingredientSubquery})`);
       // Buscar usuarios por username Clerk, idSocialMedia y externalId
-      let clerkUserIds = [];
+      let clerkUserIds: string[] = [];
       try {
         const clerkUsers = await clerkClient.users.getUserList({ limit: 200 });
         const matchingUsers = clerkUsers.data.filter(clerkUser => {
@@ -855,6 +855,7 @@ export const searchAll = async (req: Request, res: Response) => {
           mediaType: recipe.mediaType,
           userId: recipe.userId,
           createdAt: recipe.createdAt,
+          updatedAt: recipe.updatedAt, // <-- AGREGADO
         })
         .from(recipe)
         .where(or(...recipeConditions))
@@ -888,6 +889,7 @@ export const searchAll = async (req: Request, res: Response) => {
         }
         return {
           ...r,
+          updatedAt: r.updatedAt || null,
           user,
           stats: {
             rates: ratesResult[0]?.count || 0,

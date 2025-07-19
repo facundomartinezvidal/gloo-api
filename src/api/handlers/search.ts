@@ -82,7 +82,7 @@ export const searchRecipes = async (req: Request, res: Response) => {
         if (clerkUserIds.length === 1) {
           textConditions.push(sql`${recipe.userId} = ${clerkUserIds[0]}`);
         } else if (clerkUserIds.length > 1) {
-          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds})`);
+          textConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(clerkUserIds, sql`, `)}])`);
         }
         conditions.push(or(...textConditions));
       }
@@ -820,7 +820,7 @@ export const searchAll = async (req: Request, res: Response) => {
         if (clerkUserIds.length === 1) {
           textConditions.push(sql`${recipe.userId} = ${clerkUserIds[0]}`);
         } else if (clerkUserIds.length > 1) {
-          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds})`);
+          textConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(clerkUserIds, sql`, `)}])`);
         }
         conditions.push(or(...textConditions));
       }

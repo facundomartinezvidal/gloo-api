@@ -36,29 +36,54 @@ export const searchRecipes = async (req: Request, res: Response) => {
 
     // Construir condiciones base
     const conditions = [];
-
     // Solo mostrar recetas aprobadas
     conditions.push(eq(recipe.status, 'approved'));
 
-    // Búsqueda flexible por texto
+    // Búsqueda flexible por texto (insensible a mayúsculas/minúsculas y espacios)
     if (query) {
-      const searchQuery = query.toLowerCase().trim();
-      
-      // Búsqueda en título y descripción de recetas
-      const recipeTextCondition = or(
-        ilike(recipe.title, `%${searchQuery}%`),
-        ilike(recipe.description, `%${searchQuery}%`)
-      );
-      
-      // Búsqueda en ingredientes
-      const ingredientCondition = sql`EXISTS (
-        SELECT 1 FROM ${ingredient} 
-        WHERE ${ingredient.recipeId} = ${recipe.id} 
-        AND (${ilike(ingredient.name, `%${searchQuery}%`)} OR ${ilike(ingredient.description, `%${searchQuery}%`)})
-      )`;
-      
-      // Combinar condiciones de búsqueda
-      conditions.push(or(recipeTextCondition, ingredientCondition));
+      const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+      if (searchTerms.length > 0) {
+        const textConditions = [];
+        // Búsqueda en título y descripción de recetas
+        searchTerms.forEach(term => {
+          textConditions.push(
+            ilike(recipe.title, `%${term}%`),
+            ilike(recipe.description, `%${term}%`)
+          );
+        });
+        // Búsqueda en ingredientes
+        const ingredientSubquery = db
+          .select({ recipeId: ingredient.recipeId })
+          .from(ingredient)
+          .where(
+            or(
+              ...searchTerms.map(term => ilike(ingredient.name, `%${term}%`)),
+              ...searchTerms.map(term => ilike(ingredient.description, `%${term}%`))
+            )
+          );
+        textConditions.push(sql`${recipe.id} IN (${ingredientSubquery})`);
+        // Búsqueda por nombre de usuario en Clerk
+        let clerkUserIds: string[] = [];
+        try {
+          const clerkUsers = await clerkClient.users.getUserList({ limit: 200 });
+          const matchingUsers = clerkUsers.data.filter(clerkUser => {
+            const searchableText = [
+              clerkUser.username,
+              clerkUser.firstName,
+              clerkUser.lastName,
+              clerkUser.emailAddresses?.[0]?.emailAddress,
+            ].filter(Boolean).join(' ').toLowerCase();
+            return searchTerms.some(term => searchableText.includes(term));
+          });
+          clerkUserIds = matchingUsers.map(user => user.id);
+        } catch (clerkError) {
+          console.error('Error searching in Clerk:', clerkError);
+        }
+        if (clerkUserIds.length > 0) {
+          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds})`);
+        }
+        conditions.push(or(...textConditions));
+      }
     }
 
     // Filtro por duración máxima
@@ -73,11 +98,8 @@ export const searchRecipes = async (req: Request, res: Response) => {
         .select({ recipeId: recipeCategories.recipeId })
         .from(recipeCategories)
         .where(eq(recipeCategories.categoryId, categoryId));
-      
       recipeIdsInCategory = recipeCategoryResults.map(rc => rc.recipeId).filter((id): id is number => id !== null);
-      
       if (recipeIdsInCategory.length === 0) {
-        // No hay recetas en esta categoría
         return res.json({
           success: true,
           data: [],
@@ -95,7 +117,6 @@ export const searchRecipes = async (req: Request, res: Response) => {
     let recipeIdsToExclude: number[] = [];
     if (excludeIngredients) {
       const ingredientsToExclude = excludeIngredients.split(',').map(ing => ing.trim().toLowerCase());
-      
       if (ingredientsToExclude.length > 0) {
         const excludedRecipes = await db
           .select({ recipeId: ingredient.recipeId })
@@ -110,7 +131,6 @@ export const searchRecipes = async (req: Request, res: Response) => {
               )
             )
           );
-        // Filtrar nulos para que sea number[]
         recipeIdsToExclude = excludedRecipes.map(ir => ir.recipeId).filter((id): id is number => id !== null);
       }
     }
@@ -131,16 +151,12 @@ export const searchRecipes = async (req: Request, res: Response) => {
 
     // Construir condiciones finales
     const finalConditions = [];
-    
     if (categoryId && recipeIdsInCategory.length > 0) {
       finalConditions.push(sql`${recipe.id} = ANY(${recipeIdsInCategory})`);
     }
-    
     if (conditions.length > 0) {
       finalConditions.push(...conditions);
     }
-
-    // Excluir recetas que contienen ingredientes no deseados
     if (recipeIdsToExclude.length > 0) {
       finalConditions.push(sql`${recipe.id} NOT IN (${sql.join(recipeIdsToExclude, sql`, `)})`);
     }
@@ -152,7 +168,15 @@ export const searchRecipes = async (req: Request, res: Response) => {
         orderClause = desc(recipe.createdAt);
         break;
       case 'rating':
+        orderClause = desc(sql`(
+          SELECT COALESCE(AVG(r.rate), 0) FROM rates r WHERE r.recipe_id = recipe.id
+        )`);
+        break;
       case 'popularity':
+        orderClause = desc(sql`(
+          SELECT COUNT(*) FROM recipe_likes rl WHERE rl.recipe_id = recipe.id
+        )`);
+        break;
       case 'relevance':
       default:
         orderClause = desc(recipe.createdAt);
@@ -187,7 +211,6 @@ export const searchRecipes = async (req: Request, res: Response) => {
         db.select().from(ingredient).where(eq(ingredient.recipeId, r.id)),
         db.select().from(instruction).where(eq(instruction.recipeId, r.id)).orderBy(asc(instruction.step)),
       ]);
-
       let user = null;
       try {
         const clerkUser = await clerkClient.users.getUser(r.userId as string);
@@ -198,9 +221,13 @@ export const searchRecipes = async (req: Request, res: Response) => {
           imageUrl: clerkUser.imageUrl,
         };
       } catch (error) {
-        console.error('Error fetching user:', error);
+        user = {
+          id: r.userId,
+          username: 'Usuario',
+          email: null,
+          imageUrl: null,
+        };
       }
-
       return {
         ...r,
         user,
@@ -216,7 +243,6 @@ export const searchRecipes = async (req: Request, res: Response) => {
 
     // Contar total de resultados para paginación
     let totalCount = 0;
-    
     if (categoryId && recipeIdsInCategory.length > 0) {
       if (conditions.length > 0) {
         const countResult = await db
@@ -247,36 +273,6 @@ export const searchRecipes = async (req: Request, res: Response) => {
     } else {
       const countResult = await db.select({ count: count() }).from(recipe);
       totalCount = countResult[0]?.count || 0;
-    }
-
-    // Si hay búsqueda por usuario, filtrar y reordenar resultados
-    if (query) {
-      const searchQuery = query.toLowerCase().trim();
-      
-      // Filtrar recetas que coinciden con el nombre de usuario
-      const userMatchingRecipes = data.filter(recipe => {
-        if (!recipe.user?.username) return false;
-        const username = recipe.user.username.toLowerCase();
-        return username.includes(searchQuery) || searchQuery.includes(username);
-      });
-
-      // Si encontramos recetas por usuario, las ponemos primero
-      if (userMatchingRecipes.length > 0) {
-        const otherRecipes = data.filter(recipe => !userMatchingRecipes.includes(recipe));
-        const reorderedData = [...userMatchingRecipes, ...otherRecipes];
-        
-        res.json({
-          success: true,
-          data: reorderedData,
-          pagination: {
-            page,
-            limit,
-            total: totalCount,
-            totalPages: Math.ceil(totalCount / limit),
-          },
-        });
-        return;
-      }
     }
 
     res.json({
@@ -618,139 +614,297 @@ export const searchUsers = async (req: Request, res: Response) => {
       });
     }
 
-    const offset = (page - 1) * limit;
-    const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+    // Buscar usuarios en Clerk
+    const searchTerm = query.toLowerCase().trim();
+    // Clerk no tiene búsqueda directa, así que traemos todos y filtramos (en producción deberías usar paginado o un endpoint de búsqueda si existe)
+    const allClerkUsers = await clerkClient.users.getUserList({ limit: 200 });
+    // Filtrar por username o email
+    const filteredClerkUsers = allClerkUsers.data.filter(user => {
+      const username = user.username?.toLowerCase() || '';
+      const email = user.emailAddresses[0]?.emailAddress?.toLowerCase() || '';
+      return username.includes(searchTerm) || email.includes(searchTerm);
+    });
 
-    // Buscar usuarios que coincidan con los términos de búsqueda
-    const userConditions = searchTerms.map(term => 
-      or(
-        ilike(users.idSocialMedia, `%${term}%`),
-        ilike(users.description, `%${term}%`)
-      )
-    );
+    // Paginado manual
+    const paginatedUsers = filteredClerkUsers.slice((page - 1) * limit, page * limit);
 
-    const foundUsers = await db
-      .select({
-        externalId: users.externalId,
-        idSocialMedia: users.idSocialMedia,
-        description: users.description,
-        createdAt: users.createdAt,
-      })
-      .from(users)
-      .where(or(...userConditions))
-      .limit(limit)
-      .offset(offset);
-
-    // Para cada usuario encontrado, obtener sus recetas
-    const usersWithRecipes = await Promise.all(
-      foundUsers.map(async (user) => {
+    // Para cada usuario, complementar con la base local (bio/description)
+    const usersWithExtra = await Promise.all(
+      paginatedUsers.map(async (clerkUser) => {
+        // Buscar datos extra en la base local
+        let dbUser = null;
         try {
-          // Obtener datos de Clerk si está disponible
-          let clerkUserData = null;
-          try {
-            const clerkUser = await clerkClient.users.getUser(user.externalId);
-            clerkUserData = {
-              username: clerkUser.username,
-              email: clerkUser.emailAddresses[0]?.emailAddress,
-              imageUrl: clerkUser.imageUrl,
-              firstName: clerkUser.firstName,
-              lastName: clerkUser.lastName,
-            };
-          } catch (error) {
-            console.log(`Clerk not available for user ${user.externalId}`);
-          }
-
-          // Obtener recetas del usuario
-          const userRecipes = await db
-            .select({
-              id: recipe.id,
-              title: recipe.title,
-              description: recipe.description,
-              estimatedTime: recipe.estimatedTime,
-              servings: recipe.servings,
-              image: recipe.image,
-              mediaType: recipe.mediaType,
-              createdAt: recipe.createdAt,
-            })
-            .from(recipe)
-            .where(eq(recipe.userId, user.externalId))
-            .orderBy(desc(recipe.createdAt))
-            .limit(10); // Limitar a 10 recetas por usuario
-
-          // Obtener estadísticas de las recetas
-          const recipesWithStats = await Promise.all(
-            userRecipes.map(async (r) => {
-              const [ratesResult, likesResult, commentsResult] = await Promise.all([
-                db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id)),
-                db.select({ count: count() }).from(recipeLike).where(eq(recipeLike.recipeId, r.id)),
-                db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
-              ]);
-
-              const avgRating = await db
-                .select({ avg: sql<number>`COALESCE(AVG(rate), 0)` })
-                .from(rate)
-                .where(eq(rate.recipeId, r.id));
-
-              return {
-                ...r,
-                rating: avgRating[0]?.avg || 0,
-                stats: {
-                  rates: ratesResult[0]?.count || 0,
-                  likes: likesResult[0]?.count || 0,
-                  comments: commentsResult[0]?.count || 0,
-                },
-              };
-            })
-          );
-
-          return {
-            id: user.externalId,
-            username: clerkUserData?.username || user.idSocialMedia || 'Usuario',
-            email: clerkUserData?.email,
-            imageUrl: clerkUserData?.imageUrl,
-            firstName: clerkUserData?.firstName,
-            lastName: clerkUserData?.lastName,
-            description: user.description,
-            createdAt: user.createdAt,
-            recipes: recipesWithStats,
-            recipeCount: recipesWithStats.length,
-          };
-        } catch (error) {
-          console.error(`Error processing user ${user.externalId}:`, error);
-          return {
-            id: user.externalId,
-            username: user.idSocialMedia || 'Usuario',
-            email: null,
-            imageUrl: null,
-            firstName: null,
-            lastName: null,
-            description: user.description,
-            createdAt: user.createdAt,
-            recipes: [],
-            recipeCount: 0,
-          };
+          const dbUserArr = await db.select().from(users).where(eq(users.externalId, clerkUser.id)).limit(1);
+          dbUser = dbUserArr[0] || null;
+        } catch (e) {
+          dbUser = null;
         }
+        return {
+          id: clerkUser.id,
+          username: clerkUser.username,
+          email: clerkUser.emailAddresses[0]?.emailAddress,
+          imageUrl: clerkUser.imageUrl,
+          firstName: clerkUser.firstName,
+          lastName: clerkUser.lastName,
+          description: dbUser?.description || null,
+          createdAt: dbUser?.createdAt || null,
+        };
       })
     );
-
-    // Contar total de usuarios que coinciden
-    const totalUsers = await db
-      .select({ count: count() })
-      .from(users)
-      .where(or(...userConditions));
 
     res.json({
       success: true,
-      data: usersWithRecipes,
+      data: usersWithExtra,
       pagination: {
         page,
         limit,
-        total: totalUsers[0]?.count || 0,
-        totalPages: Math.ceil((totalUsers[0]?.count || 0) / limit),
+        total: filteredClerkUsers.length,
+        totalPages: Math.ceil(filteredClerkUsers.length / limit),
       },
     });
   } catch (error) {
     console.error('Error searching users:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+    });
+  }
+}; 
+
+type SearchAllUser = {
+  id: string;
+  username: string | null;
+  email: string | null;
+  imageUrl: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  description: string | null;
+  createdAt: Date | null;
+};
+
+type SearchAllRecipe = {
+  id: string | number;
+  title: string | null;
+  description: string | null;
+  estimatedTime: number | null;
+  servings: number | null;
+  image: string | null;
+  mediaType: string | null;
+  userId: string | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+  user: {
+    id: string | null;
+    username: string | null;
+    email: string | null;
+    imageUrl: string | null;
+  };
+  stats: {
+    rates: number;
+    likes: number;
+    comments: number;
+  };
+  ingredients: any[];
+  instructions: any[];
+};
+
+export const searchAll = async (req: Request, res: Response) => {
+  try {
+    const { query, page, limit, type } = {
+      query: req.query.query as string,
+      page: req.query.page ? parseInt(req.query.page as string) : 1,
+      limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
+      type: req.query.type as string, // 'all', 'recipes', 'users'
+    };
+
+    if (!query || query.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Query parameter is required',
+      });
+    }
+
+    const searchType = type || 'all';
+    const offset = (page - 1) * limit;
+    const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+
+    let results: {
+      recipes: SearchAllRecipe[];
+      users: SearchAllUser[];
+      totalRecipes: number;
+      totalUsers: number;
+    } = {
+      recipes: [],
+      users: [],
+      totalRecipes: 0,
+      totalUsers: 0,
+    };
+
+    // Buscar recetas si se solicita
+    if (searchType === 'all' || searchType === 'recipes') {
+      const conditions = [];
+      conditions.push(eq(recipe.status, 'approved'));
+      if (searchTerms.length > 0) {
+        const textConditions = [];
+        searchTerms.forEach(term => {
+          textConditions.push(
+            ilike(recipe.title, `%${term}%`),
+            ilike(recipe.description, `%${term}%`)
+          );
+        });
+        const ingredientSubquery = db
+          .select({ recipeId: ingredient.recipeId })
+          .from(ingredient)
+          .where(
+            or(
+              ...searchTerms.map(term => ilike(ingredient.name, `%${term}%`)),
+              ...searchTerms.map(term => ilike(ingredient.description, `%${term}%`))
+            )
+          );
+        textConditions.push(sql`${recipe.id} IN (${ingredientSubquery})`);
+        // Búsqueda por nombre de usuario en Clerk
+        let clerkUserIds: string[] = [];
+        try {
+          const clerkUsers = await clerkClient.users.getUserList({ limit: 200 });
+          const matchingUsers = clerkUsers.data.filter(clerkUser => {
+            const searchableText = [
+              clerkUser.username,
+              clerkUser.firstName,
+              clerkUser.lastName,
+              clerkUser.emailAddresses?.[0]?.emailAddress,
+            ].filter(Boolean).join(' ').toLowerCase();
+            return searchTerms.some(term => searchableText.includes(term));
+          });
+          clerkUserIds = matchingUsers.map(user => user.id);
+        } catch (clerkError) {
+          console.error('Error searching in Clerk:', clerkError);
+        }
+        if (clerkUserIds.length > 0) {
+          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds})`);
+        }
+        conditions.push(or(...textConditions));
+      }
+      // Ejecutar query
+      const selectFields = {
+        id: recipe.id,
+        title: recipe.title,
+        description: recipe.description,
+        estimatedTime: recipe.estimatedTime,
+        servings: recipe.servings,
+        image: recipe.image,
+        mediaType: recipe.mediaType,
+        userId: recipe.userId,
+        createdAt: recipe.createdAt,
+        updatedAt: recipe.updatedAt,
+      };
+      let recipes;
+      if (conditions.length > 0) {
+        recipes = await db
+          .select(selectFields)
+          .from(recipe)
+          .where(and(...conditions))
+          .orderBy(desc(recipe.createdAt))
+          .limit(limit)
+          .offset(offset);
+      } else {
+        recipes = await db
+          .select(selectFields)
+          .from(recipe)
+          .orderBy(desc(recipe.createdAt))
+          .limit(limit)
+          .offset(offset);
+      }
+      results.recipes = await Promise.all(recipes.map(async (r) => {
+        const [ratesResult, likesResult, commentsResult, ingredients, instructions] = await Promise.all([
+          db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id)),
+          db.select({ count: count() }).from(recipeLike).where(eq(recipeLike.recipeId, r.id)),
+          db.select({ count: count() }).from(recipeComment).where(eq(recipeComment.recipeId, r.id)),
+          db.select().from(ingredient).where(eq(ingredient.recipeId, r.id)),
+          db.select().from(instruction).where(eq(instruction.recipeId, r.id)).orderBy(asc(instruction.step)),
+        ]);
+        let user = null;
+        try {
+          const clerkUser = await clerkClient.users.getUser(r.userId as string);
+          user = {
+            id: clerkUser.id,
+            username: clerkUser.username,
+            email: clerkUser.emailAddresses[0]?.emailAddress,
+            imageUrl: clerkUser.imageUrl,
+          };
+        } catch (error) {
+          user = {
+            id: r.userId,
+            username: 'Usuario',
+            email: null,
+            imageUrl: null,
+          };
+        }
+        return {
+          ...r,
+          user,
+          stats: {
+            rates: ratesResult[0]?.count || 0,
+            likes: likesResult[0]?.count || 0,
+            comments: commentsResult[0]?.count || 0,
+          },
+          ingredients,
+          instructions,
+        };
+      }));
+      // Contar total de recetas
+      const totalRecipes = await db
+        .select({ count: count() })
+        .from(recipe)
+        .where(and(...conditions));
+      results.totalRecipes = totalRecipes[0]?.count || 0;
+    }
+
+    // Buscar usuarios si se solicita
+    if (searchType === 'all' || searchType === 'users') {
+      // Buscar usuarios en Clerk
+      const allClerkUsers = await clerkClient.users.getUserList({ limit: 200 });
+      const filteredClerkUsers = allClerkUsers.data.filter(user => {
+        const username = user.username?.toLowerCase() || '';
+        const email = user.emailAddresses[0]?.emailAddress?.toLowerCase() || '';
+        return searchTerms.some(term => username.includes(term) || email.includes(term));
+      });
+      const paginatedUsers = filteredClerkUsers.slice((page - 1) * limit, page * limit);
+      results.users = await Promise.all(
+        paginatedUsers.map(async (clerkUser) => {
+          let dbUser = null;
+          try {
+            const dbUserArr = await db.select().from(users).where(eq(users.externalId, clerkUser.id)).limit(1);
+            dbUser = dbUserArr[0] || null;
+          } catch (e) {
+            dbUser = null;
+          }
+          return {
+            id: clerkUser.id,
+            username: clerkUser.username,
+            email: clerkUser.emailAddresses[0]?.emailAddress,
+            imageUrl: clerkUser.imageUrl,
+            firstName: clerkUser.firstName,
+            lastName: clerkUser.lastName,
+            description: dbUser?.description || null,
+            createdAt: dbUser?.createdAt || null,
+          };
+        })
+      );
+      results.totalUsers = filteredClerkUsers.length;
+    }
+
+    res.json({
+      success: true,
+      data: results,
+      pagination: {
+        page,
+        limit,
+        total: results.totalRecipes + results.totalUsers,
+        totalPages: Math.ceil((results.totalRecipes + results.totalUsers) / limit),
+      },
+    });
+  } catch (error) {
+    console.error('Error in combined search:', error);
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',

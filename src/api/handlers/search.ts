@@ -80,7 +80,7 @@ export const searchRecipes = async (req: Request, res: Response) => {
           console.error('Error searching in Clerk:', clerkError);
         }
         if (clerkUserIds.length > 0) {
-          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds})`);
+          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds}::text[])`);
         }
         conditions.push(or(...textConditions));
       }
@@ -780,7 +780,7 @@ export const searchAll = async (req: Request, res: Response) => {
           console.error('Error searching in Clerk:', clerkError);
         }
         if (clerkUserIds.length > 0) {
-          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds})`);
+          textConditions.push(sql`${recipe.userId} = ANY(${clerkUserIds}::text[])`);
         }
         conditions.push(or(...textConditions));
       }

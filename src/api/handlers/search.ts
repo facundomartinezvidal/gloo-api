@@ -79,10 +79,21 @@ export const searchRecipes = async (req: Request, res: Response) => {
         } catch (clerkError) {
           console.error('Error searching in Clerk:', clerkError);
         }
-        if (clerkUserIds.length === 1) {
-          textConditions.push(sql`${recipe.userId} = ${clerkUserIds[0]}`);
-        } else if (clerkUserIds.length > 1) {
-          textConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(clerkUserIds, sql`, `)}])`);
+        // Buscar usuarios locales que coincidan
+        const localUserIds = (await db.select({ externalId: users.externalId })
+          .from(users)
+          .where(
+            or(
+              ...searchTerms.map(term => ilike(users.idSocialMedia, `%${term}%`)),
+              ...searchTerms.map(term => ilike(users.description, `%${term}%`))
+            )
+          )).map(u => u.externalId);
+        // Unir ambos orígenes y quitar duplicados
+        const allUserIds = Array.from(new Set([...clerkUserIds, ...localUserIds]));
+        if (allUserIds.length === 1) {
+          textConditions.push(sql`${recipe.userId} = ${allUserIds[0]}`);
+        } else if (allUserIds.length > 1) {
+          textConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(allUserIds, sql`, `)}])`);
         }
         conditions.push(or(...textConditions));
       }
@@ -626,6 +637,7 @@ export const searchUsers = async (req: Request, res: Response) => {
       allClerkUsers = clerkUsers.data;
     } catch (e) {
       console.error('Error fetching Clerk users:', e);
+      allClerkUsers = [];
     }
 
     // Filtrar Clerk por username, email, firstName, lastName
@@ -817,10 +829,21 @@ export const searchAll = async (req: Request, res: Response) => {
         } catch (clerkError) {
           console.error('Error searching in Clerk:', clerkError);
         }
-        if (clerkUserIds.length === 1) {
-          textConditions.push(sql`${recipe.userId} = ${clerkUserIds[0]}`);
-        } else if (clerkUserIds.length > 1) {
-          textConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(clerkUserIds, sql`, `)}])`);
+        // Buscar usuarios locales que coincidan
+        const localUserIds = (await db.select({ externalId: users.externalId })
+          .from(users)
+          .where(
+            or(
+              ...searchTerms.map(term => ilike(users.idSocialMedia, `%${term}%`)),
+              ...searchTerms.map(term => ilike(users.description, `%${term}%`))
+            )
+          )).map(u => u.externalId);
+        // Unir ambos orígenes y quitar duplicados
+        const allUserIds = Array.from(new Set([...clerkUserIds, ...localUserIds]));
+        if (allUserIds.length === 1) {
+          textConditions.push(sql`${recipe.userId} = ${allUserIds[0]}`);
+        } else if (allUserIds.length > 1) {
+          textConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(allUserIds, sql`, `)}])`);
         }
         conditions.push(or(...textConditions));
       }

@@ -39,13 +39,33 @@ export const searchRecipes = async (req: Request, res: Response) => {
     // Solo mostrar recetas aprobadas
     conditions.push(eq(recipe.status, 'approved'));
 
-    // Búsqueda por texto en título y descripción
+    // Búsqueda flexible por texto
     if (query) {
-      const textSearchCondition = or(
-        ilike(recipe.title, `%${query}%`),
-        ilike(recipe.description, `%${query}%`),
-      );
-      conditions.push(textSearchCondition);
+      // Dividir la consulta en palabras para búsqueda más flexible
+      const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+      
+      if (searchTerms.length > 0) {
+        // Búsqueda en título y descripción de recetas
+        const recipeTextConditions = searchTerms.map(term => 
+          or(
+            ilike(recipe.title, `%${term}%`),
+            ilike(recipe.description, `%${term}%`)
+          )
+        );
+        
+        // Búsqueda en ingredientes
+        const ingredientConditions = searchTerms.map(term => 
+          sql`EXISTS (
+            SELECT 1 FROM ${ingredient} 
+            WHERE ${ingredient.recipeId} = ${recipe.id} 
+            AND (${ilike(ingredient.name, `%${term}%`)} OR ${ilike(ingredient.description, `%${term}%`)})
+          )`
+        );
+        
+        // Combinar todas las condiciones de búsqueda
+        const allSearchConditions = [...recipeTextConditions, ...ingredientConditions];
+        conditions.push(or(...allSearchConditions));
+      }
     }
 
     // Filtro por duración máxima
@@ -200,6 +220,38 @@ export const searchRecipes = async (req: Request, res: Response) => {
         instructions,
       };
     }));
+
+    // Si hay búsqueda por usuario, filtrar y reordenar resultados
+    if (query) {
+      const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+      
+      // Filtrar recetas que coinciden con el nombre de usuario
+      const userMatchingRecipes = data.filter(recipe => {
+        if (!recipe.user?.username) return false;
+        return searchTerms.some(term => 
+          recipe.user.username.toLowerCase().includes(term) ||
+          term.includes(recipe.user.username.toLowerCase())
+        );
+      });
+
+      // Si encontramos recetas por usuario, las ponemos primero
+      if (userMatchingRecipes.length > 0) {
+        const otherRecipes = data.filter(recipe => !userMatchingRecipes.includes(recipe));
+        const reorderedData = [...userMatchingRecipes, ...otherRecipes];
+        
+        res.json({
+          success: true,
+          data: reorderedData,
+          pagination: {
+            page,
+            limit,
+            total: totalCount,
+            totalPages: Math.ceil(totalCount / limit),
+          },
+        });
+        return;
+      }
+    }
 
     // Contar total de resultados para paginación
     let totalCount = 0;

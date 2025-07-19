@@ -835,7 +835,8 @@ export const searchAll = async (req: Request, res: Response) => {
           .where(
             or(
               ...searchTerms.map(term => ilike(users.idSocialMedia, `%${term}%`)),
-              ...searchTerms.map(term => ilike(users.description, `%${term}%`))
+              ...searchTerms.map(term => ilike(users.description, `%${term}%`)),
+              ...searchTerms.map(term => ilike(users.externalId, `%${term}%`))
             )
           )).map(u => u.externalId);
         // Unir ambos orígenes y quitar duplicados

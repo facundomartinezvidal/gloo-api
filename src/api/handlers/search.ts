@@ -792,93 +792,76 @@ export const searchAll = async (req: Request, res: Response) => {
 
     // Buscar recetas si se solicita
     if (searchType === 'all' || searchType === 'recipes') {
-      const conditions = [];
-      conditions.push(eq(recipe.status, 'approved'));
-      if (searchTerms.length > 0) {
-        const textConditions = [];
-        searchTerms.forEach(term => {
-          textConditions.push(
-            ilike(recipe.title, `%${term}%`),
-            ilike(recipe.description, `%${term}%`)
-          );
+      // Construir condiciones de búsqueda flexibles para recetas
+      const recipeConditions = [];
+      searchTerms.forEach(term => {
+        recipeConditions.push(
+          ilike(recipe.title, `%${term}%`),
+          ilike(recipe.description, `%${term}%`)
+        );
+      });
+      const ingredientSubquery = db
+        .select({ recipeId: ingredient.recipeId })
+        .from(ingredient)
+        .where(
+          or(
+            ...searchTerms.map(term => ilike(ingredient.name, `%${term}%`)),
+            ...searchTerms.map(term => ilike(ingredient.description, `%${term}%`))
+          )
+        );
+      recipeConditions.push(sql`${recipe.id} IN (${ingredientSubquery})`);
+      // Buscar usuarios por username Clerk, idSocialMedia y externalId
+      let clerkUserIds = [];
+      try {
+        const clerkUsers = await clerkClient.users.getUserList({ limit: 200 });
+        const matchingUsers = clerkUsers.data.filter(clerkUser => {
+          const searchableText = [
+            clerkUser.username,
+            clerkUser.firstName,
+            clerkUser.lastName,
+            clerkUser.emailAddresses?.[0]?.emailAddress,
+            clerkUser.id
+          ].filter(Boolean).join(' ').toLowerCase();
+          return searchTerms.some(term => searchableText.includes(term));
         });
-        const ingredientSubquery = db
-          .select({ recipeId: ingredient.recipeId })
-          .from(ingredient)
-          .where(
-            or(
-              ...searchTerms.map(term => ilike(ingredient.name, `%${term}%`)),
-              ...searchTerms.map(term => ilike(ingredient.description, `%${term}%`))
-            )
-          );
-        textConditions.push(sql`${recipe.id} IN (${ingredientSubquery})`);
-        // Búsqueda por nombre de usuario en Clerk
-        let clerkUserIds: string[] = [];
-        try {
-          const clerkUsers = await clerkClient.users.getUserList({ limit: 200 });
-          const matchingUsers = clerkUsers.data.filter(clerkUser => {
-            const searchableText = [
-              clerkUser.username,
-              clerkUser.firstName,
-              clerkUser.lastName,
-              clerkUser.emailAddresses?.[0]?.emailAddress,
-            ].filter(Boolean).join(' ').toLowerCase();
-            return searchTerms.some(term => searchableText.includes(term));
-          });
-          clerkUserIds = matchingUsers.map(user => user.id);
-        } catch (clerkError) {
-          console.error('Error searching in Clerk:', clerkError);
-        }
-        // Buscar usuarios locales que coincidan
-        const localUserIds = (await db.select({ externalId: users.externalId })
-          .from(users)
-          .where(
-            or(
-              ...searchTerms.map(term => ilike(users.idSocialMedia, `%${term}%`)),
-              ...searchTerms.map(term => ilike(users.description, `%${term}%`)),
-              ...searchTerms.map(term => ilike(users.externalId, `%${term}%`))
-            )
-          )).map(u => u.externalId);
-        // Unir ambos orígenes y quitar duplicados
-        const allUserIds = Array.from(new Set([...clerkUserIds, ...localUserIds]));
-        if (allUserIds.length === 1) {
-          textConditions.push(sql`${recipe.userId} = ${allUserIds[0]}`);
-        } else if (allUserIds.length > 1) {
-          textConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(allUserIds, sql`, `)}])`);
-        }
-        conditions.push(or(...textConditions));
+        clerkUserIds = matchingUsers.map(user => user.id);
+      } catch (clerkError) {
+        console.error('Error searching in Clerk:', clerkError);
       }
-      // Ejecutar query
-      const selectFields = {
-        id: recipe.id,
-        title: recipe.title,
-        description: recipe.description,
-        estimatedTime: recipe.estimatedTime,
-        servings: recipe.servings,
-        image: recipe.image,
-        mediaType: recipe.mediaType,
-        userId: recipe.userId,
-        createdAt: recipe.createdAt,
-        updatedAt: recipe.updatedAt,
-      };
-      let recipes;
-      if (conditions.length > 0) {
-        recipes = await db
-          .select(selectFields)
-          .from(recipe)
-          .where(and(...conditions))
-          .orderBy(desc(recipe.createdAt))
-          .limit(limit)
-          .offset(offset);
-      } else {
-        recipes = await db
-          .select(selectFields)
-          .from(recipe)
-          .orderBy(desc(recipe.createdAt))
-          .limit(limit)
-          .offset(offset);
+      const localUserIds = (await db.select({ externalId: users.externalId })
+        .from(users)
+        .where(
+          or(
+            ...searchTerms.map(term => ilike(users.idSocialMedia, `%${term}%`)),
+            ...searchTerms.map(term => ilike(users.description, `%${term}%`)),
+            ...searchTerms.map(term => ilike(users.externalId, `%${term}%`))
+          )
+        )).map(u => u.externalId);
+      const allUserIds = Array.from(new Set([...clerkUserIds, ...localUserIds]));
+      if (allUserIds.length === 1) {
+        recipeConditions.push(sql`${recipe.userId} = ${allUserIds[0]}`);
+      } else if (allUserIds.length > 1) {
+        recipeConditions.push(sql`${recipe.userId} = ANY(ARRAY[${sql.join(allUserIds, sql`, `)}])`);
       }
-      results.recipes = await Promise.all(recipes.map(async (r) => {
+      // Ejecutar query con OR global
+      const foundRecipes = await db
+        .select({
+          id: recipe.id,
+          title: recipe.title,
+          description: recipe.description,
+          estimatedTime: recipe.estimatedTime,
+          servings: recipe.servings,
+          image: recipe.image,
+          mediaType: recipe.mediaType,
+          userId: recipe.userId,
+          createdAt: recipe.createdAt,
+        })
+        .from(recipe)
+        .where(or(...recipeConditions))
+        .orderBy(desc(recipe.createdAt))
+        .limit(limit)
+        .offset(offset);
+      results.recipes = await Promise.all(foundRecipes.map(async (r) => {
         const [ratesResult, likesResult, commentsResult, ingredients, instructions] = await Promise.all([
           db.select({ count: count() }).from(rate).where(eq(rate.recipeId, r.id)),
           db.select({ count: count() }).from(recipeLike).where(eq(recipeLike.recipeId, r.id)),
@@ -919,7 +902,7 @@ export const searchAll = async (req: Request, res: Response) => {
       const totalRecipes = await db
         .select({ count: count() })
         .from(recipe)
-        .where(and(...conditions));
+        .where(and(...recipeConditions));
       results.totalRecipes = totalRecipes[0]?.count || 0;
     }
 

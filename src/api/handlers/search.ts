@@ -129,7 +129,7 @@ export const searchRecipes = async (req: Request, res: Response) => {
 
     // Excluir recetas que contienen ingredientes no deseados
     if (recipeIdsToExclude.length > 0) {
-      finalConditions.push(sql`${recipe.id} != ALL(${recipeIdsToExclude})`);
+      finalConditions.push(sql`${recipe.id} NOT IN (${recipeIdsToExclude.join(',')})`);
     }
 
     // Determinar orden
@@ -213,7 +213,7 @@ export const searchRecipes = async (req: Request, res: Response) => {
             and(
               sql`${recipe.id} = ANY(${recipeIdsInCategory})`,
               ...conditions,
-              ...(recipeIdsToExclude.length > 0 ? [sql`${recipe.id} != ALL(${recipeIdsToExclude})`] : []),
+              ...(recipeIdsToExclude.length > 0 ? [sql`${recipe.id} NOT IN (${recipeIdsToExclude.join(',')})`] : []),
             ),
           );
         totalCount = countResult[0]?.count || 0;
@@ -227,7 +227,7 @@ export const searchRecipes = async (req: Request, res: Response) => {
         .where(
           and(
             ...conditions,
-            ...(recipeIdsToExclude.length > 0 ? [sql`${recipe.id} != ALL(${recipeIdsToExclude})`] : []),
+            ...(recipeIdsToExclude.length > 0 ? [sql`${recipe.id} NOT IN (${recipeIdsToExclude.join(',')})`] : []),
           )
         );
       totalCount = countResult[0]?.count || 0;

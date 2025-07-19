@@ -23,11 +23,12 @@ import {
 // Búsqueda principal de recetas
 export const searchRecipes = async (req: Request, res: Response) => {
   try {
-    const { query, categoryId, page, limit, sortBy } = searchRecipesInput.parse({
+    const { query, categoryId, page, limit, sortBy, maxDuration, excludeIngredients } = searchRecipesInput.parse({
       ...req.query,
       page: req.query.page ? parseInt(req.query.page as string) : 1,
       limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
       categoryId: req.query.categoryId ? parseInt(req.query.categoryId as string) : undefined,
+      maxDuration: req.query.maxDuration ? parseInt(req.query.maxDuration as string) : undefined,
     });
 
     const offset = (page - 1) * limit;
@@ -47,6 +48,11 @@ export const searchRecipes = async (req: Request, res: Response) => {
       conditions.push(textSearchCondition);
     }
 
+    // Filtro por duración máxima
+    if (maxDuration) {
+      conditions.push(sql`${recipe.estimatedTime} <= ${maxDuration}`);
+    }
+
     // Obtener IDs de recetas que coinciden con la categoría si se especifica
     let recipeIdsInCategory: number[] = [];
     if (categoryId) {
@@ -55,7 +61,7 @@ export const searchRecipes = async (req: Request, res: Response) => {
         .from(recipeCategories)
         .where(eq(recipeCategories.categoryId, categoryId));
       
-      recipeIdsInCategory = recipeCategoryResults.map(rc => rc.recipeId);
+      recipeIdsInCategory = recipeCategoryResults.map(rc => rc.recipeId).filter((id): id is number => id !== null);
       
       if (recipeIdsInCategory.length === 0) {
         // No hay recetas en esta categoría
@@ -69,6 +75,30 @@ export const searchRecipes = async (req: Request, res: Response) => {
             totalPages: 0,
           },
         });
+      }
+    }
+
+    // Obtener IDs de recetas que contienen ingredientes a excluir
+    let recipeIdsToExclude: number[] = [];
+    if (excludeIngredients) {
+      const ingredientsToExclude = excludeIngredients.split(',').map(ing => ing.trim().toLowerCase());
+      
+      if (ingredientsToExclude.length > 0) {
+        const excludedRecipes = await db
+          .select({ recipeId: ingredient.recipeId })
+          .from(ingredient)
+          .where(
+            or(
+              ...ingredientsToExclude.map(ing => 
+                or(
+                  ilike(ingredient.name, `%${ing}%`),
+                  ilike(ingredient.description, `%${ing}%`)
+                )
+              )
+            )
+          );
+        
+        recipeIdsToExclude = excludedRecipes.map(ir => ir.recipeId).filter((id): id is number => id !== null);
       }
     }
 
@@ -95,6 +125,11 @@ export const searchRecipes = async (req: Request, res: Response) => {
     
     if (conditions.length > 0) {
       finalConditions.push(...conditions);
+    }
+
+    // Excluir recetas que contienen ingredientes no deseados
+    if (recipeIdsToExclude.length > 0) {
+      finalConditions.push(sql`${recipe.id} != ALL(${recipeIdsToExclude})`);
     }
 
     // Determinar orden
@@ -178,6 +213,7 @@ export const searchRecipes = async (req: Request, res: Response) => {
             and(
               sql`${recipe.id} = ANY(${recipeIdsInCategory})`,
               ...conditions,
+              ...(recipeIdsToExclude.length > 0 ? [sql`${recipe.id} != ALL(${recipeIdsToExclude})`] : []),
             ),
           );
         totalCount = countResult[0]?.count || 0;
@@ -188,7 +224,12 @@ export const searchRecipes = async (req: Request, res: Response) => {
       const countResult = await db
         .select({ count: count() })
         .from(recipe)
-        .where(and(...conditions));
+        .where(
+          and(
+            ...conditions,
+            ...(recipeIdsToExclude.length > 0 ? [sql`${recipe.id} != ALL(${recipeIdsToExclude})`] : []),
+          )
+        );
       totalCount = countResult[0]?.count || 0;
     } else {
       const countResult = await db.select({ count: count() }).from(recipe);

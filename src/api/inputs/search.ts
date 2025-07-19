@@ -6,6 +6,8 @@ export const searchRecipesInput = z.object({
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(50).default(20),
   sortBy: z.enum(['relevance', 'newest', 'rating', 'popularity']).default('relevance'),
+  maxDuration: z.number().int().positive().optional(),
+  excludeIngredients: z.string().optional(),
 });
 
 export const addToHistoryInput = z.object({

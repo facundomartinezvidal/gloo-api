@@ -9,6 +9,7 @@ import {
   createCategory,
   clearSearchHistory,
   removeFromSearchHistory,
+  searchAll,
 } from '../handlers/search';
 
 const router = express.Router();
@@ -18,6 +19,7 @@ router.get('/', searchRecipes); // GET /search?query=chicken&categoryId=1&page=1
 router.get('/users', searchUsers); // GET /search/users?query=username&page=1&limit=20
 router.get('/suggestions', getSearchSuggestions); // GET /search/suggestions
 router.get('/categories', getCategories); // GET /search/categories
+router.get('/all', searchAll); // GET /search/all?type=users&query=...&limit=...
 
 // Rutas de historial de búsquedas del usuario
 router.get('/history/:userId', getUserSearchHistory); // GET /search/history/:userId

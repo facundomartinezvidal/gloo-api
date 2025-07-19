@@ -41,31 +41,23 @@ export const searchRecipes = async (req: Request, res: Response) => {
 
     // Búsqueda flexible por texto
     if (query) {
-      // Dividir la consulta en palabras para búsqueda más flexible
-      const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+      const searchQuery = query.toLowerCase().trim();
       
-      if (searchTerms.length > 0) {
-        // Búsqueda en título y descripción de recetas
-        const recipeTextConditions = searchTerms.map(term => 
-          or(
-            ilike(recipe.title, `%${term}%`),
-            ilike(recipe.description, `%${term}%`)
-          )
-        );
-        
-        // Búsqueda en ingredientes
-        const ingredientConditions = searchTerms.map(term => 
-          sql`EXISTS (
-            SELECT 1 FROM ${ingredient} 
-            WHERE ${ingredient.recipeId} = ${recipe.id} 
-            AND (${ilike(ingredient.name, `%${term}%`)} OR ${ilike(ingredient.description, `%${term}%`)})
-          )`
-        );
-        
-        // Combinar todas las condiciones de búsqueda
-        const allSearchConditions = [...recipeTextConditions, ...ingredientConditions];
-        conditions.push(or(...allSearchConditions));
-      }
+      // Búsqueda en título y descripción de recetas
+      const recipeTextCondition = or(
+        ilike(recipe.title, `%${searchQuery}%`),
+        ilike(recipe.description, `%${searchQuery}%`)
+      );
+      
+      // Búsqueda en ingredientes
+      const ingredientCondition = sql`EXISTS (
+        SELECT 1 FROM ${ingredient} 
+        WHERE ${ingredient.recipeId} = ${recipe.id} 
+        AND (${ilike(ingredient.name, `%${searchQuery}%`)} OR ${ilike(ingredient.description, `%${searchQuery}%`)})
+      )`;
+      
+      // Combinar condiciones de búsqueda
+      conditions.push(or(recipeTextCondition, ingredientCondition));
     }
 
     // Filtro por duración máxima
@@ -258,15 +250,13 @@ export const searchRecipes = async (req: Request, res: Response) => {
 
     // Si hay búsqueda por usuario, filtrar y reordenar resultados
     if (query) {
-      const searchTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+      const searchQuery = query.toLowerCase().trim();
       
       // Filtrar recetas que coinciden con el nombre de usuario
       const userMatchingRecipes = data.filter(recipe => {
         if (!recipe.user?.username) return false;
-        return searchTerms.some(term => 
-          recipe.user!.username!.toLowerCase().includes(term) ||
-          term.includes(recipe.user!.username!.toLowerCase())
-        );
+        const username = recipe.user.username.toLowerCase();
+        return username.includes(searchQuery) || searchQuery.includes(username);
       });
 
       // Si encontramos recetas por usuario, las ponemos primero

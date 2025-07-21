@@ -160,10 +160,24 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
 export const createRecipe = async (req: Request, res: Response) => {
   console.log('INICIO createRecipe');
   try {
-    // Los datos de FormData llegan como strings, hay que parsearlos
+    // Los datos pueden llegar como JSON o FormData
     const { title, description, estimatedTime, servings, media } = req.body;
-    const ingredients = JSON.parse(req.body.ingredients || '[]');
-    const instructions = JSON.parse(req.body.instructions || '[]');
+    
+    // Manejar ingredients - puede ser array ya parseado o string
+    let ingredients;
+    if (typeof req.body.ingredients === 'string') {
+      ingredients = JSON.parse(req.body.ingredients || '[]');
+    } else {
+      ingredients = req.body.ingredients || [];
+    }
+    
+    // Manejar instructions - puede ser array ya parseado o string  
+    let instructions;
+    if (typeof req.body.instructions === 'string') {
+      instructions = JSON.parse(req.body.instructions || '[]');
+    } else {
+      instructions = req.body.instructions || [];
+    }
     const userId = req.params.userId;
     console.log('Datos recibidos:', { title, description, estimatedTime, servings, userId, ingredientsLength: ingredients.length, instructionsLength: instructions.length });
     

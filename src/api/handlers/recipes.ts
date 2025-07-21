@@ -362,6 +362,9 @@ export const createRecipe = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error creating recipe:', error);
+    if (error instanceof Error) {
+      console.error(error.stack);
+    }
     res.status(500).json({
       success: false,
       error: 'Internal server error',

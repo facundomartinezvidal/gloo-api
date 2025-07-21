@@ -160,6 +160,7 @@ export const requireOwnership = (req: AuthenticatedRequest, res: Response, next:
 
 // Middleware combinado que require autenticación Y ownership
 export const requireAuthAndOwnership = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  console.log('🛡️ [requireAuthAndOwnership] INICIO', req.method, req.originalUrl);
   try {
     // Primero verificar autenticación
     await new Promise<void>((resolve, reject) => {
@@ -177,8 +178,10 @@ export const requireAuthAndOwnership = async (req: AuthenticatedRequest, res: Re
       });
     });
 
+    console.log('🛡️ [requireAuthAndOwnership] PASA ownership y auth');
     next();
   } catch (error) {
+    console.error('🛡️ [requireAuthAndOwnership] ERROR:', error);
     // Los errores ya fueron manejados por los middlewares individuales
     return;
   }

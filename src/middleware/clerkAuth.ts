@@ -118,16 +118,16 @@ export const optionalAuth = async (req: AuthenticatedRequest, res: Response, nex
           req.userId = tokenPayload.sub;
           console.log('✅ Optional Auth - User authenticated:', tokenPayload.sub);
         }
-      } catch (tokenError) {
-        console.log('⚠️ Optional Auth - Invalid token, continuing without auth:', tokenError.message);
-        // Continuar sin autenticación si el token es inválido
-      }
+             } catch (tokenError) {
+         console.log('⚠️ Optional Auth - Invalid token, continuing without auth:', tokenError instanceof Error ? tokenError.message : String(tokenError));
+         // Continuar sin autenticación si el token es inválido
+       }
     }
     
     next();
   } catch (error) {
     // Si hay error en autenticación opcional, continuar sin autenticación
-    console.log('⚠️ Optional Auth - Error, continuing without auth:', error.message);
+    console.log('⚠️ Optional Auth - Error, continuing without auth:', error instanceof Error ? error.message : String(error));
     next();
   }
 };

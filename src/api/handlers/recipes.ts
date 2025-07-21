@@ -154,18 +154,21 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
 };
 
 export const createRecipe = async (req: Request, res: Response) => {
+  console.log('INICIO createRecipe');
   try {
     // Los datos de FormData llegan como strings, hay que parsearlos
     const { title, description, estimatedTime, servings } = req.body;
     const ingredients = JSON.parse(req.body.ingredients || '[]');
     const instructions = JSON.parse(req.body.instructions || '[]');
     const userId = req.params.userId;
+    console.log('Datos recibidos:', { title, description, estimatedTime, servings, userId, ingredientsLength: ingredients.length, instructionsLength: instructions.length });
     
     // Verificar si el usuario existe en la tabla local, si no, crearlo
     const existingUser = await db.select().from(users).where(eq(users.externalId, userId));
     
     if (existingUser.length === 0) {
       try {
+        console.log('Usuario no existe en tabla local, verificando en Clerk...');
         // Verificar que el usuario existe en Clerk
         await clerkClient.users.getUser(userId);
         
@@ -175,8 +178,10 @@ export const createRecipe = async (req: Request, res: Response) => {
           description: null,
           idSocialMedia: null,
         });
+        console.log('Usuario creado en tabla local');
       } catch (clerkError) {
         console.error('Error fetching user from Clerk:', clerkError);
+        console.log('RETURN anticipado: usuario no válido');
         return res.status(400).json({
           success: false,
           error: 'Usuario no válido',
@@ -190,12 +195,13 @@ export const createRecipe = async (req: Request, res: Response) => {
     // Procesar el archivo subido por multer
     if (req.file) {
       const file = req.file;
-      
+      console.log('Archivo recibido:', file.originalname, file.mimetype);
       try {
         const mimeType = file.mimetype;
         
         // Validar que sea imagen o video
         if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) {
+          console.log('RETURN anticipado: archivo no es imagen/video');
           return res.status(400).json({
             success: false,
             error: 'Solo se permiten archivos de imagen o video',
@@ -218,6 +224,8 @@ export const createRecipe = async (req: Request, res: Response) => {
           });
 
         if (uploadError) {
+          console.error('Error al subir archivo:', uploadError);
+          console.log('RETURN anticipado: error al subir archivo');
           return res.status(400).json({
             success: false,
             error: 'Error al subir archivo: ' + uploadError.message,
@@ -230,6 +238,7 @@ export const createRecipe = async (req: Request, res: Response) => {
           .getPublicUrl(fileName);
 
         mediaUrl = urlData.publicUrl;
+        console.log('Archivo subido correctamente, url:', mediaUrl);
         
       } finally {
         // Asegurarse de eliminar siempre el archivo temporal
@@ -237,6 +246,7 @@ export const createRecipe = async (req: Request, res: Response) => {
       }
     }
 
+    console.log('Antes de insertar receta');
     // Create the recipe first
     const newRecipe = await db.insert(recipe).values({
       title,
@@ -247,6 +257,7 @@ export const createRecipe = async (req: Request, res: Response) => {
       mediaType: mediaType,
       servings: servings || 4,
     }).returning();
+    console.log('Receta insertada:', newRecipe[0]);
 
     // Add ingredients if provided
     if (ingredients && Array.isArray(ingredients) && ingredients.length > 0) {

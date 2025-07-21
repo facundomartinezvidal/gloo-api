@@ -154,7 +154,10 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
 
 export const createRecipe = async (req: Request, res: Response) => {
   try {
-    const { title, description, estimatedTime, media, ingredients, instructions, servings } = req.body;
+    // Los datos de FormData llegan como strings, hay que parsearlos
+    const { title, description, estimatedTime, servings } = req.body;
+    const ingredients = JSON.parse(req.body.ingredients || '[]');
+    const instructions = JSON.parse(req.body.instructions || '[]');
     const userId = req.params.userId;
     
     // Verificar si el usuario existe en la tabla local, si no, crearlo
@@ -183,64 +186,44 @@ export const createRecipe = async (req: Request, res: Response) => {
     let mediaUrl: string | null = null;
     let mediaType: 'image' | 'video' | null = null;
 
-    // Only process media if provided
-    if (media) {
-      mediaUrl = media; // Default to use provided URL
-
-      // If file comes as base64, upload to Supabase Storage
-      if (media.startsWith('data:')) {
-        // Extract file type and base64 data
-        const [header, base64Data] = media.split(',');
-        const mimeMatch = header.match(/data:([^;]+)/);
-        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-        
-        // Validate that it's image or video
-        if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) {
-          return res.status(400).json({
-            success: false,
-            error: 'Only image or video files are allowed',
-          });
-        }
-        
-        // Determine media type
-        mediaType = mimeType.startsWith('image/') ? 'image' : 'video';
-        
-        // Convert base64 to buffer
-        const buffer = Buffer.from(base64Data, 'base64');
-        
-        // Generate unique filename
-        const extension = mimeType.split('/')[1];
-        const fileName = `recipes/${userId}/${Date.now()}.${extension}`;
-        
-        // Upload file to Supabase Storage
-        const { error: uploadError } = await supabase.storage
-          .from('recipe.content')
-          .upload(fileName, buffer, {
-            contentType: mimeType,
-          });
-
-        if (uploadError) {
-          return res.status(400).json({
-            success: false,
-            error: 'Error uploading file: ' + uploadError.message,
-          });
-        }
-
-        // Get public URL of the file
-        const { data: urlData } = supabase.storage
-          .from('recipe.content')
-          .getPublicUrl(fileName);
-
-        mediaUrl = urlData.publicUrl;
-      } else {
-        // If it's a URL, try to determine type by extension
-        const urlLower = media.toLowerCase();
-        if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
-          mediaType = 'video';
-        } else {
-          mediaType = 'image'; // Default to assume image
-        }
+    // Procesar el archivo subido por multer
+    if (req.file) {
+      const file = req.file;
+      const mimeType = file.mimetype;
+      
+      // Validar que sea imagen o video
+      if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Solo se permiten archivos de imagen o video',
+        });
       }
+      
+      mediaType = mimeType.startsWith('image/') ? 'image' : 'video';
+      const buffer = file.buffer;
+      const extension = mimeType.split('/')[1];
+      const fileName = `recipes/${userId}/${Date.now()}.${extension}`;
+      
+      // Subir archivo a Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('recipe.content')
+        .upload(fileName, buffer, {
+          contentType: mimeType,
+        });
+
+      if (uploadError) {
+        return res.status(400).json({
+          success: false,
+          error: 'Error al subir archivo: ' + uploadError.message,
+        });
+      }
+
+      // Obtener URL pública del archivo
+      const { data: urlData } = supabase.storage
+        .from('recipe.content')
+        .getPublicUrl(fileName);
+
+      mediaUrl = urlData.publicUrl;
     }
 
     // Create the recipe first

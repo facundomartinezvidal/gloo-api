@@ -367,6 +367,7 @@ export const createRecipe = async (req: Request, res: Response) => {
       instructions: recipeInstructions,
     };
 
+    console.log('DEBUG RECIPE TITLE:', { title, newRecipeTitle: newRecipe[0].title });
     // Notificar a los admins sobre la nueva receta pendiente de aprobación
     await notifyAdminsForRecipeApproval(newRecipe[0].id, title, userId);
 

@@ -1,7 +1,7 @@
 import express from 'express';
 // import multer from 'multer';
 import { getAllRecipes, createRecipe, getRecipesByUser, updateRecipe, deleteRecipe, getTrendingRecipes, getRecipeById } from '../handlers/recipes';
-import { requireAuthAndOwnership, requireAuth } from '../../middleware/clerkAuth';
+import { requireAuthAndOwnership, requireAuth, optionalAuth } from '../../middleware/clerkAuth';
 
 const router = express.Router();
 
@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.get('/', getAllRecipes);
 router.get('/trending', getTrendingRecipes);
-router.get('/user/:userId', getRecipesByUser);
+router.get('/user/:userId', optionalAuth, getRecipesByUser);
 router.get('/:id', getRecipeById);
 // Eliminar multer de la ruta POST
 router.post('/:userId', requireAuthAndOwnership, createRecipe);

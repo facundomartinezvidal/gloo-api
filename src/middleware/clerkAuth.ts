@@ -96,17 +96,38 @@ export const requireAuthWithUser = async (req: AuthenticatedRequest, res: Respon
 };
 
 // Middleware opcional de autenticación (no requiere auth pero la extrae si está presente)
-export const optionalAuth = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+export const optionalAuth = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     // Si hay un header de Authorization, intentar extraer el userId
     const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      // Aquí podrías decodificar manualmente el JWT si es necesario
-      // Por ahora simplemente continúa sin requerir autenticación
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+    if (bearerToken) {
+      try {
+        // Verificar el token usando Clerk
+        const tokenPayload = await verifyToken(bearerToken, {
+          secretKey: process.env.CLERK_SECRET_KEY!,
+        });
+
+        if (tokenPayload) {
+          // Agregar información de autenticación al request
+          req.auth = {
+            userId: tokenPayload.sub,
+            sessionId: tokenPayload.sid || '',
+          };
+          req.userId = tokenPayload.sub;
+          console.log('✅ Optional Auth - User authenticated:', tokenPayload.sub);
+        }
+      } catch (tokenError) {
+        console.log('⚠️ Optional Auth - Invalid token, continuing without auth:', tokenError.message);
+        // Continuar sin autenticación si el token es inválido
+      }
     }
+    
     next();
   } catch (error) {
     // Si hay error en autenticación opcional, continuar sin autenticación
+    console.log('⚠️ Optional Auth - Error, continuing without auth:', error.message);
     next();
   }
 };

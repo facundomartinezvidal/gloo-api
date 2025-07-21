@@ -106,12 +106,20 @@ export const getRecipesByUser = async (req: Request, res: Response) => {
     const { userId } = req.params;
     const { includeStatus } = req.query;
     
-    // Por defecto solo mostrar recetas aprobadas, a menos que se especifique incluir otros estados
-    let whereCondition = and(eq(recipe.userId, userId), eq(recipe.status, 'approved'));
+    // Obtener el ID del usuario autenticado desde el token
+    const authenticatedUserId = (req as any).auth?.userId;
     
-    // Si el usuario solicita ver todas sus recetas (incluyendo pendientes y rechazadas)
-    if (includeStatus === 'all') {
+    // Si el usuario autenticado es el mismo que solicita sus recetas, mostrar todas
+    // Si es otro usuario, solo mostrar las aprobadas
+    let whereCondition;
+    if (authenticatedUserId === userId || includeStatus === 'all') {
+      // Mostrar todas las recetas del usuario (own profile o solicitud explícita)
       whereCondition = eq(recipe.userId, userId);
+      console.log(`Mostrando TODAS las recetas para usuario ${userId} (autenticado: ${authenticatedUserId})`);
+    } else {
+      // Mostrar solo recetas aprobadas (perfil público)
+      whereCondition = and(eq(recipe.userId, userId), eq(recipe.status, 'approved'));
+      console.log(`Mostrando solo recetas APROBADAS para usuario ${userId} (público)`);
     }
     
     // Obtener recetas del usuario específico

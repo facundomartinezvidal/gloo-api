@@ -157,7 +157,7 @@ export const createRecipe = async (req: Request, res: Response) => {
   console.log('INICIO createRecipe');
   try {
     // Los datos de FormData llegan como strings, hay que parsearlos
-    const { title, description, estimatedTime, servings } = req.body;
+    const { title, description, estimatedTime, servings, media } = req.body;
     const ingredients = JSON.parse(req.body.ingredients || '[]');
     const instructions = JSON.parse(req.body.instructions || '[]');
     const userId = req.params.userId;
@@ -190,59 +190,58 @@ export const createRecipe = async (req: Request, res: Response) => {
     }
     
     let mediaUrl: string | null = null;
-    let mediaType: 'image' | 'video' | null = null;
+    let mediaType: 'image' | null = null;
 
-    // Procesar el archivo subido por multer
+    // Solo permitir imágenes (base64 o URL). Si se recibe un archivo, rechazarlo.
     if (req.file) {
-      const file = req.file;
-      console.log('Archivo recibido:', file.originalname, file.mimetype);
-      try {
-        const mimeType = file.mimetype;
-        
-        // Validar que sea imagen o video
-        if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) {
-          console.log('RETURN anticipado: archivo no es imagen/video');
+      return res.status(400).json({
+        success: false,
+        error: 'Solo se permite subir imágenes como base64 o URL. El soporte de archivos y video estará disponible en el futuro.'
+      });
+    }
+
+    // Procesar media si se proporciona
+    if (media) {
+      // Si es base64, subir a Supabase Storage
+      if (media.startsWith('data:')) {
+        const [header, base64Data] = media.split(',');
+        const mimeMatch = header.match(/data:([^;]+)/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+        if (!mimeType.startsWith('image/')) {
           return res.status(400).json({
             success: false,
-            error: 'Solo se permiten archivos de imagen o video',
+            error: 'Solo se permiten archivos de imagen',
           });
         }
-        
-        mediaType = mimeType.startsWith('image/') ? 'image' : 'video';
-        
-        // Leer el buffer del archivo temporal guardado en disco
-        const buffer = await fs.readFile(file.path);
-        
+        mediaType = 'image';
+        const buffer = Buffer.from(base64Data, 'base64');
         const extension = mimeType.split('/')[1];
         const fileName = `recipes/${userId}/${Date.now()}.${extension}`;
-        
-        // Subir archivo a Supabase Storage
         const { error: uploadError } = await supabase.storage
           .from('recipe.content')
           .upload(fileName, buffer, {
             contentType: mimeType,
           });
-
         if (uploadError) {
-          console.error('Error al subir archivo:', uploadError);
-          console.log('RETURN anticipado: error al subir archivo');
           return res.status(400).json({
             success: false,
             error: 'Error al subir archivo: ' + uploadError.message,
           });
         }
-
-        // Obtener URL pública del archivo
         const { data: urlData } = supabase.storage
           .from('recipe.content')
           .getPublicUrl(fileName);
-
         mediaUrl = urlData.publicUrl;
-        console.log('Archivo subido correctamente, url:', mediaUrl);
-        
-      } finally {
-        // Asegurarse de eliminar siempre el archivo temporal
-        await fs.unlink(file.path);
+      } else {
+        // Si es una URL, solo aceptar imágenes
+        if (!media.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Solo se permiten URLs de imágenes',
+          });
+        }
+        mediaType = 'image';
+        mediaUrl = media;
       }
     }
 

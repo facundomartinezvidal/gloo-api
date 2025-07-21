@@ -21,19 +21,18 @@ const getUserName = async (userId: string): Promise<string> => {
 // Función auxiliar para notificar a los admins sobre acciones en recetas
 const notifyAdminsForRecipeAction = async (recipeId: number, recipeTitle: string, authorId: string, action: 'created' | 'updated' | 'deleted', adminMessage: string) => {
   try {
+    console.log('[NOTIFY] Intentando notificar admins para acción:', action, 'de receta', recipeId, 'por', authorId);
     // Obtener membresías de organización del autor para determinar qué admins notificar
     const organizationMemberships = await clerkClient.users.getOrganizationMembershipList({ userId: authorId });
-    
+    console.log('[NOTIFY] Memberships:', organizationMemberships.data.length);
     if (organizationMemberships.data.length > 0) {
       // Tomar la primera organización del usuario
       const organizationId = organizationMemberships.data[0].organization.id;
-      
       // Obtener todos los admins de la organización
       const adminIds = await getOrganizationAdmins(organizationId);
-      
+      console.log('[NOTIFY] Admin IDs:', adminIds);
       // Filtrar para no notificar al mismo usuario si es admin
       const filteredAdminIds = adminIds.filter(adminId => adminId !== authorId);
-      
       // Crear notificaciones para cada admin
       const notifications = filteredAdminIds.map(adminId => ({
         recipientId: adminId,
@@ -46,18 +45,23 @@ const notifyAdminsForRecipeAction = async (recipeId: number, recipeTitle: string
         relatedId: recipeId,
         relatedType: 'recipe',
       }));
-
       if (notifications.length > 0) {
         await db.insert(notification).values(notifications);
+        console.log('[NOTIFY] Notificaciones insertadas:', notifications.length);
+      } else {
+        console.log('[NOTIFY] No hay admins a notificar.');
       }
+    } else {
+      console.log('[NOTIFY] El usuario no pertenece a ninguna organización.');
     }
   } catch (error) {
-    console.error(`Error notifying admins for recipe ${action}:`, error);
+    console.error(`[NOTIFY] Error notifying admins for recipe ${action}:`, error);
   }
 };
 
 // Función auxiliar para notificar a los admins sobre nueva receta pendiente
 const notifyAdminsForRecipeApproval = async (recipeId: number, recipeTitle: string, authorId: string) => {
+  console.log('[NOTIFY] notifyAdminsForRecipeApproval llamada para receta', recipeId, 'por', authorId);
   const authorName = await getUserName(authorId);
   await notifyAdminsForRecipeAction(
     recipeId, 

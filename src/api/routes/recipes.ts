@@ -5,7 +5,11 @@ import { requireAuthAndOwnership, requireAuth } from '../../middleware/clerkAuth
 
 const router = express.Router();
 
-const upload = multer({ limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB
+// Configurar multer para que guarde los archivos temporalmente en el disco
+const upload = multer({
+  storage: multer.diskStorage({}), // Usa el directorio temporal del sistema operativo
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+});
 
 router.get('/', getAllRecipes);
 router.get('/trending', getTrendingRecipes);

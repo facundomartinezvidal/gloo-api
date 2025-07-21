@@ -6,6 +6,7 @@ import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
 import { supabase } from '../lib/supabase';
 import { getOrganizationAdmins } from '../../middleware/roleCheck';
+import fs from 'fs/promises'; // Importar filesystem para leer y borrar el archivo temporal
 
 // Función auxiliar para obtener el nombre del usuario
 const getUserName = async (userId: string): Promise<string> => {
@@ -189,41 +190,51 @@ export const createRecipe = async (req: Request, res: Response) => {
     // Procesar el archivo subido por multer
     if (req.file) {
       const file = req.file;
-      const mimeType = file.mimetype;
       
-      // Validar que sea imagen o video
-      if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) {
-        return res.status(400).json({
-          success: false,
-          error: 'Solo se permiten archivos de imagen o video',
-        });
+      try {
+        const mimeType = file.mimetype;
+        
+        // Validar que sea imagen o video
+        if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) {
+          return res.status(400).json({
+            success: false,
+            error: 'Solo se permiten archivos de imagen o video',
+          });
+        }
+        
+        mediaType = mimeType.startsWith('image/') ? 'image' : 'video';
+        
+        // Leer el buffer del archivo temporal guardado en disco
+        const buffer = await fs.readFile(file.path);
+        
+        const extension = mimeType.split('/')[1];
+        const fileName = `recipes/${userId}/${Date.now()}.${extension}`;
+        
+        // Subir archivo a Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('recipe.content')
+          .upload(fileName, buffer, {
+            contentType: mimeType,
+          });
+
+        if (uploadError) {
+          return res.status(400).json({
+            success: false,
+            error: 'Error al subir archivo: ' + uploadError.message,
+          });
+        }
+
+        // Obtener URL pública del archivo
+        const { data: urlData } = supabase.storage
+          .from('recipe.content')
+          .getPublicUrl(fileName);
+
+        mediaUrl = urlData.publicUrl;
+        
+      } finally {
+        // Asegurarse de eliminar siempre el archivo temporal
+        await fs.unlink(file.path);
       }
-      
-      mediaType = mimeType.startsWith('image/') ? 'image' : 'video';
-      const buffer = file.buffer;
-      const extension = mimeType.split('/')[1];
-      const fileName = `recipes/${userId}/${Date.now()}.${extension}`;
-      
-      // Subir archivo a Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('recipe.content')
-        .upload(fileName, buffer, {
-          contentType: mimeType,
-        });
-
-      if (uploadError) {
-        return res.status(400).json({
-          success: false,
-          error: 'Error al subir archivo: ' + uploadError.message,
-        });
-      }
-
-      // Obtener URL pública del archivo
-      const { data: urlData } = supabase.storage
-        .from('recipe.content')
-        .getPublicUrl(fileName);
-
-      mediaUrl = urlData.publicUrl;
     }
 
     // Create the recipe first

@@ -6,6 +6,7 @@ import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
 import { supabase } from '../lib/supabase';
 import { getOrganizationAdmins } from '../../middleware/roleCheck';
+import { AuthenticatedRequest } from '../../middleware/clerkAuth';
 import fs from 'fs/promises'; // Importar filesystem para leer y borrar el archivo temporal
 
 // Función auxiliar para obtener el nombre del usuario
@@ -538,9 +539,17 @@ export const updateRecipe = async (req: Request, res: Response) => {
   }
 };
 
-export const deleteRecipe = async (req: Request, res: Response) => {
+export const deleteRecipe = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const userId = req.userId;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Usuario no autenticado',
+      });
+    }
     
     const recipeId = parseInt(id);
     if (isNaN(recipeId)) {
@@ -550,7 +559,7 @@ export const deleteRecipe = async (req: Request, res: Response) => {
       });
     }
 
-    // Verificar si la receta existe
+    // Verificar si la receta existe y pertenece al usuario
     const existingRecipe = await db.select().from(recipe).where(eq(recipe.id, recipeId));
     if (existingRecipe.length === 0) {
       return res.status(404).json({
@@ -560,6 +569,14 @@ export const deleteRecipe = async (req: Request, res: Response) => {
     }
 
     const recipeData = existingRecipe[0];
+
+    // Verificar que el usuario sea el propietario de la receta
+    if (recipeData.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'No tienes permisos para eliminar esta receta',
+      });
+    }
 
     // Verificar si la receta ya está marcada para eliminación
     if (recipeData.status === 'delete_pending') {

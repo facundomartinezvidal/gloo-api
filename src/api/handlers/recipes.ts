@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../../db';
-import { ingredient, instruction, rate, recipe, recipeLike, recipeComment, users, notification } from '../../db/schema';
+import { ingredient, instruction, rate, recipe, recipeLike, recipeComment, users, notification, collectionRecipes, favorites, recipeCategories } from '../../db/schema';
 import { count, eq, asc, avg, and } from 'drizzle-orm';
 import { clerkClient } from '@clerk/express';
 import createRecipeInput from '../inputs/recipes';
@@ -578,37 +578,22 @@ export const deleteRecipe = async (req: AuthenticatedRequest, res: Response) => 
       });
     }
 
-    // Verificar si la receta ya está marcada para eliminación
-    if (recipeData.status === 'delete_pending') {
-      return res.status(400).json({
-        success: false,
-        error: 'La receta ya está pendiente de eliminación',
-      });
-    }
+    // Eliminar datos relacionados primero
+    await db.delete(ingredient).where(eq(ingredient.recipeId, recipeId));
+    await db.delete(instruction).where(eq(instruction.recipeId, recipeId));
+    await db.delete(rate).where(eq(rate.recipeId, recipeId));
+    await db.delete(recipeLike).where(eq(recipeLike.recipeId, recipeId));
+    await db.delete(recipeComment).where(eq(recipeComment.recipeId, recipeId));
+    await db.delete(collectionRecipes).where(eq(collectionRecipes.recipeId, recipeId));
+    await db.delete(favorites).where(eq(favorites.recipeId, recipeId));
+    await db.delete(recipeCategories).where(eq(recipeCategories.recipeId, recipeId));
 
-    // Marcar la receta como pendiente de eliminación
-    await db.update(recipe)
-      .set({
-        status: 'delete_pending',
-        updatedAt: new Date(),
-      })
-      .where(eq(recipe.id, recipeId));
-
-    // Notificar a los admins sobre la solicitud de eliminación
-    if (recipeData.userId) {
-      const authorName = await getUserName(recipeData.userId as string);
-      await notifyAdminsForRecipeAction(
-        recipeId,
-        recipeData.title || 'Sin título',
-        recipeData.userId as string,
-        'deleted',
-        `${authorName} ha solicitado eliminar la receta "${recipeData.title || 'Sin título'}"`,
-      );
-    }
+    // Eliminar la receta
+    await db.delete(recipe).where(eq(recipe.id, recipeId));
 
     res.json({
       success: true,
-      message: 'Solicitud de eliminación enviada. Pendiente de aprobación de admin.',
+      message: 'Receta eliminada exitosamente.',
     });
   } catch (error) {
     console.error('Error requesting recipe deletion:', error);
